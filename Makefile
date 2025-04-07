@@ -1,22 +1,36 @@
 CC = gcc
-CFLAGS = -Wall -g -Iinclude
-LDFLAGS =
+PKG_CONFIG := pkg-config
+GLIB_CFLAGS := $(shell $(PKG_CONFIG) --cflags glib-2.0)
+GLIB_LIBS := $(shell $(PKG_CONFIG) --libs glib-2.0)
 
-all: folders dserver dclient
-dserver: bin/dserver
-dclient: bin/dclient
+CFLAGS = -Wall -g $(GLIB_CFLAGS) -I./src
+LDFLAGS = $(GLIB_LIBS)
+
+# Lista de todos os arquivos fonte
+SRC = $(wildcard src/*.c)
+OBJ = $(patsubst src/%.c, obj/%.o, $(SRC))
+
+# Targets dos executáveis
+SERVER_EXEC = bin/dserver
+CLIENT_EXEC = bin/dclient
+
+# Regras principais
+all: folders $(SERVER_EXEC) $(CLIENT_EXEC)
 
 folders:
-	@mkdir -p src include obj bin tmp
+	@mkdir -p obj bin tmp
 
-bin/dserver: obj/dserver.o
-	$(CC) $(LDFLAGS) $^ -o $@
+# Compilar dserver
+$(SERVER_EXEC): obj/dserver.o obj/utils.o
+	$(CC) $^ -o $@ $(LDFLAGS)
 
-bin/dclient: obj/dclient.o
-	$(CC) $(LDFLAGS) $^ -o $@
+# Compilar dclient
+$(CLIENT_EXEC): obj/dclient.o obj/utils.o
+	$(CC) $^ -o $@ $(LDFLAGS)
 
+# Regra geral para compilar objetos
 obj/%.o: src/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f obj/* tmp/* bin/*
+	rm -rf obj/* bin/* tmp/* obj bin tmp
