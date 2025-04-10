@@ -33,4 +33,4 @@ obj/%.o: src/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -rf obj/* bin/* tmp/* obj bin tmp
+	rm -rf obj/* bin/* tmp/* obj bin tmpa

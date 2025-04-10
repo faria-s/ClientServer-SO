@@ -5,69 +5,100 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <string.h>
+#include <signal.h>
 
 #include "lib.h"
 
 #define PIPE_NAME "/tmp/doc_index_pipe"
 
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-
-int main(int argc, char *argv[]) {
-
-    // ===========================Checking conditions=================================
-    if (argc < 2) { 
-        handle_error("Uso: dclient -<flag> [args...]\n"); 
-    }
-    
+int main() {
     // ===========================Setting variables=================================
-    Command cmd;
-    build_command(&cmd, argc, argv);
+    GHashTable *document_table;
+    document_table = g_hash_table_new_full(g_int_hash, g_int_equal, free, free);
+    int current_id = 1;
 
-    // ===========================Creating Individual FIFO=================================
-    char response_fifo[64];
-    snprintf(response_fifo, sizeof(response_fifo), "/tmp/client_%d", cmd.processID);
+     // ===========================Avoid Zombies=================================
+     signal(SIGCHLD, SIG_IGN);
 
-    unlink(response_fifo);
-
-    if (mkfifo(response_fifo, 0666) == -1) {
-        handle_error("Error creating response client FIFO\n");
+    // ===========================Creating Main FIFO=================================
+    if (access(PIPE_NAME, F_OK) == -1) {
+        if (mkfifo(PIPE_NAME, 0666) != 0) {
+            handle_error("Error creating main fifo server side\n");
+        }
     }
 
-    // ===========================Opening FIFO=================================
-    int fd = open(PIPE_NAME, O_WRONLY);
-    if (fd == -1) {
-        handle_error("Error opening client side FIFO\n");
-    }
+    // ===========================Main Loop to receive queries=================================
+    int running = 1;
+    while (running) {
+        // ===========================Opening FIFO=================================
+        int fd = open(PIPE_NAME, O_RDONLY);
+        if (fd == -1) {
+            handle_error("Error opening server side FIFO\n");
+        }
 
-    // ===========================Sending struct to Server=================================
-    if (write(fd, &cmd, sizeof(Command)) != sizeof(Command)) {
+        // ===========================Reading command=================================
+        Command cmd;
+        ssize_t bytes = read(fd, &cmd, sizeof(Command));
         close(fd);
-        handle_error("Error writing struct Command to FIFO client side\n");
+
+        if (bytes != sizeof(Command)) {
+            handle_error("Error reading from FIFO server side\n");
+        }
+
+        // ===========================Creating pipe for father-children communication=================================
+        int pfd[2];
+        if (pipe(pfd) == -1) {
+            handle_error("Error creating anonymous pipe\n");
+        }
+
+        // ===========================Creating child process=================================
+        pid_t pid = fork();
+
+        if (pid == 0) {
+            // ===========================CHILD===========================
+            close(pfd[0]);
+
+            // ===========================Checking for modification flag===========================
+            if (cmd.flag == 'a' || cmd.flag == 'd') {
+                write(pfd[1], &cmd, sizeof(Command));
+            } else {
+                handle_client_response(&cmd, document_table);
+                printf("entrou aqui ué\n");
+            }
+
+            close(pfd[1]);
+
+            _exit(0);
+        } else {
+            // ===========================FATHER===========================
+            close(pfd[1]);
+
+            // ===========================Checking for modification flag===========================
+            if (cmd.flag == 'a' || cmd.flag == 'd') {
+                Command received;
+                ssize_t r = read(pfd[0], &received, sizeof(Command));
+                if (r == sizeof(Command)) {
+                    if (received.flag == 'a') {
+                        handle_add(&received, document_table, &current_id);
+                    } else if (received.flag == 'd') {
+                        handle_delete(&received, document_table);
+                    }
+                } else {
+                    handle_error("Error reading from anonymous pipe\n");
+                }
+            }
+
+            close(pfd[0]);
+        }
+
+        // ===========================Checking for server ending flag===========================
+        if (cmd.flag == 'f') {
+            printf("Server is shutting down\n");
+            g_hash_table_destroy(document_table);
+            running = 0;
+        }
     }
 
-    close(fd);
-
-    // ===========================Opening FIFO=================================
-    int response_fd = open(response_fifo, O_RDONLY);
-    if (response_fd == -1) {
-        handle_error("Error opening response FIFO client side\n");
-    }
-
-    // ===========================Reading Server response=================================
-    char response[512];
-    ssize_t bytes_read = read(response_fd, response, sizeof(response) - 1);
-    if (bytes_read > 0) {
-        response[bytes_read] = '\0';
-        write(STDOUT_FILENO, response, strlen(response)); // ? handle this better accordingly to type of response?
-    } else {
-        handle_error("Error reading response from server\n");
-    }
-
-    close(response_fd);
-    unlink(response_fifo);
-
-
+    unlink(PIPE_NAME);
     return 0;
 }
