@@ -8,7 +8,6 @@
 #include <sys/stat.h>
 #include <sys/types.h>
 #include <sys/time.h>
-#include <errno.h>
 
 #include "lib.h"
 
@@ -70,16 +69,22 @@ void handle_add(Command *cmd, GHashTable *table, int *current_id) {
     strncpy(doc->year, year, MAX_YEAR);
     strncpy(doc->path, path, MAX_PATH);
 
-    // ===========================Unique identifier to send to client=================================
-    int *id = malloc(sizeof(int));
-    *id = (*current_id)++;
-
-    // ===========================Inserting in Hashtable=================================
-    g_hash_table_insert(table, id, doc);
-
-    // ===========================Building Response Message=================================
+    // ===========================Verifying If Path Exists=================================
     char response[128];
-    snprintf(response, sizeof(response), "Document %d indexed\n", *id);
+    if(access(doc->path,F_OK) == 0){
+        // ===========================Unique identifier to send to client=================================
+        int *id = malloc(sizeof(int));
+        *id = (*current_id)++;
+
+        // ===========================Inserting in Hashtable=================================
+        g_hash_table_insert(table, id, doc);
+
+        // ===========================Building Response Message=================================
+        snprintf(response, sizeof(response), "Document %d indexed\n", *id);
+    }
+    else{
+        snprintf(response, sizeof(response), "Document path doesn't exist\n");
+    }
 
     // ===========================Setting up FIFO name=================================
     char fifo_name[64];
@@ -179,8 +184,6 @@ void handle_lines_with_keyword(Command *cmd, GHashTable *table) {
     char *keyword = strtok(NULL, "|");
 
     // ===========================Setting up response to the client=================================
-    // ! ISTO PROVAVELMENTE NÃO ESTÁ BEM ATÉ À ABERTURA DO FIFO EM BAIXO - VERIFICAR !!!!
-    // ! CONFIRMADO, NÃO ESTÁ BEM :(
     char response[128];
 
     if (!key_str || !keyword) {
@@ -195,7 +198,7 @@ void handle_lines_with_keyword(Command *cmd, GHashTable *table) {
             // ===========================Setting up 'grep | wc -l' command=================================
             char command[512];
             snprintf(command, sizeof(command),
-                     "grep -c '%s' '%s' 2>/dev/null", keyword, doc->path);
+                     "grep -c '%s' '%s' 2>/dev/null", keyword, doc->path); // hides error messages
 
             FILE *fp = popen(command, "r");
             if (fp == NULL) {
@@ -227,18 +230,34 @@ void handle_lines_with_keyword(Command *cmd, GHashTable *table) {
     free(args);
 }
 
+void handle_shutdown(Command *cmd, GHashTable *table) {
+    char response[128];
+    snprintf(response, sizeof(response), "Server is shutting down\n");
+
+    // ===========================Setting up FIFO name=================================
+    char fifo_name[64];
+    snprintf(fifo_name, sizeof(fifo_name), "/tmp/client_%d", cmd->processID);
+
+    // ===========================Opening FIFO=================================
+    int fd = open(fifo_name, O_WRONLY);
+    if (fd == -1) {
+        perror("Error opening response FIFO server side\n");
+        return;
+    }
+    // ===========================Sending Response to client=================================
+    write(fd, response, strlen(response));
+    close(fd);
+}
+
 void handle_client_response(Command *cmd, GHashTable *table) {
     switch (cmd->flag)
     {
     case 'c':
         handle_consult(cmd, table);
         break;
-    case 'l':
-        handle_lines_with_keyword(cmd, table); // TODO : não está bem implementado :(
-        break;
-    case 's':
+   case 's':
         // TODO logic for flag -s
-        break;      
+        break;
     default:
         break;
     }
