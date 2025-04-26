@@ -1,5 +1,4 @@
 #include <stdio.h>
-#include <stdlib.h>
 #include <fcntl.h>
 #include <sys/types.h>
 #include <sys/stat.h>
@@ -10,17 +9,13 @@
 
 #define PIPE_NAME "/tmp/doc_index_pipe"
 
-#include <stdio.h>
-#include <string.h>
-#include <stdlib.h>
-
 int main(int argc, char *argv[]) {
 
     // ===========================Checking conditions=================================
-    if (argc < 2) { 
-        handle_error("Uso: dclient -<flag> [args...]\n"); 
+    if (argc < 2) {
+        handle_error("Uso: dclient -<flag> [args...]\n");
     }
-    
+
     // ===========================Setting variables=================================
     Command cmd;
     build_command(&cmd, argc, argv);

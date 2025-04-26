@@ -4,7 +4,6 @@
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
-#include <string.h>
 #include <signal.h>
 
 #include "lib.h"
@@ -63,7 +62,6 @@ int main() {
                 write(pfd[1], &cmd, sizeof(Command));
             } else {
                 handle_client_response(&cmd, document_table);
-                printf("entrou aqui ué\n");
             }
 
             close(pfd[1]);
@@ -93,6 +91,7 @@ int main() {
 
         // ===========================Checking for server ending flag===========================
         if (cmd.flag == 'f') {
+            handle_shutdown(&cmd,document_table);
             printf("Server is shutting down\n");
             g_hash_table_destroy(document_table);
             running = 0;
