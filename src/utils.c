@@ -6,6 +6,7 @@
 #include <fcntl.h>
 
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <sys/types.h>
 #include <sys/time.h>
 
@@ -34,6 +35,7 @@ void build_command(Command *cmd, int argc, char *argv[]) {
     cmd->flag = argv[1][1];
     cmd->processID = getpid();
     cmd->arguments[0] = '\0';
+    cmd->number_arguments = argc;
 
     // ===========================Saving arguments splitted with '|'=================================
     for (int i = 2; i < argc; i++) {
@@ -57,7 +59,7 @@ void handle_add(Command *cmd, GHashTable *table, int *current_id) {
 
     // ===========================Variable checking=================================
     if (!title || !authors || !year || !path) {
-        fprintf(stderr, "Error: invalid arguments with flag -a\n");
+        perror("Error: invalid arguments with flag -a\n");
         free(args);
         return;
     }
@@ -230,6 +232,110 @@ void handle_lines_with_keyword(Command *cmd, GHashTable *table) {
     free(args);
 }
 
+void handle_search(Command *cmd, GHashTable *table) {
+    char *args = strdup(cmd->arguments);
+    char response[512];
+    response[0] = '\0';
+
+    // ===========================Verifies If Has nr_processes=================================
+    if (cmd->number_arguments == 3) {
+        char *keyword = args;
+
+        strcat(response, "[");
+
+        int size = g_hash_table_size(table);
+        int first = 1;
+
+        for (int i = 1; i <= size; i++) {
+            DocumentInfo *doc = find_document_by_id(table, i);
+            if (!doc) continue;
+
+            int pfd[2];
+            if (pipe(pfd) == -1) {
+                perror("pipe failed");
+                continue;
+            }
+
+            pid_t pid = fork();
+            if (pid == -1) {
+                perror("fork failed");
+                close(pfd[0]);
+                close(pfd[1]);
+                continue;
+            }
+
+            if (pid == 0) {
+                // Child
+                close(pfd[0]); // Close read end
+                dup2(pfd[1], STDOUT_FILENO); // Redirect stdout to pipe
+                close(pfd[1]); // Close original write end (now duplicated)
+
+                execlp("grep", "grep", keyword, doc->path, NULL);
+
+                perror("execlp failed");
+                _exit(1);
+            } else {
+                // Parent
+                close(pfd[1]); // Close write end
+
+                char buffer[256];
+                ssize_t count = read(pfd[0], buffer, sizeof(buffer) - 1);
+                close(pfd[0]);
+
+                int status;
+                waitpid(pid, &status, 0);
+
+                if (count > 0) {
+                    if (!first) {
+                        strcat(response, ",");
+                    }
+                    char id_str[16];
+                    snprintf(id_str, sizeof(id_str), "%d", i);
+                    strcat(response, id_str);
+                    first = 0;
+                }
+            }
+        }
+
+        strcat(response, "]\n");
+    }
+    else if(cmd->number_arguments == 4){
+        // ===========================Getting arguments from the command=================================
+        char *keyword = strtok(args, "|");
+        char *nr_processes= strtok(NULL, "|");
+
+        // ===========================Getting key from the command=================================
+        int max_processes = atoi(nr_processes);
+        if(!max_processes){
+            perror("Invalid nr_processes input\n");
+            free(args);
+            return;
+        }
+    }
+    else{
+        perror("Incorrect number of arguments \n");
+        free(args);
+        return;
+    }
+
+    // ===========================Setting up FIFO name=================================
+    char fifo_name[64];
+    snprintf(fifo_name, sizeof(fifo_name), "/tmp/client_%d", cmd->processID);
+
+    // ===========================Opening FIFO=================================
+    int fd = open(fifo_name, O_WRONLY);
+    if (fd == -1) {
+        perror("Error opening response FIFO server side\n");
+        free(args);
+        return;
+    }
+
+    // ===========================Sending Response to client=================================
+    write(fd, response, strlen(response));
+    close(fd);
+    free(args);
+}
+
 void handle_shutdown(Command *cmd, GHashTable *table) {
     char response[128];
     snprintf(response, sizeof(response), "Server is shutting down\n");
@@ -255,10 +361,35 @@ void handle_client_response(Command *cmd, GHashTable *table) {
     case 'c':
         handle_consult(cmd, table);
         break;
+    case 'l':
+        handle_lines_with_keyword(cmd, table);
+        break;
    case 's':
-        // TODO logic for flag -s
+        handle_search(cmd, table);
         break;
     default:
         break;
     }
 }
+
+/*
+
+else if(cmd->number_arguments == 4){
+    // ===========================Getting arguments from the command=================================
+    char *keyword = strtok(args, "|");
+    char *nr_processes= strtok(NULL, "|");
+
+    // ===========================Getting key from the command=================================
+    int max_processes = atoi(nr_processes);
+    if(!max_processes){
+        perror("Invalid nr_processes input\n");
+        free(args);
+        return;
+    }
+}
+else{
+    perror("Incorrect number of arguments \n");
+    free(args);
+    return;
+}
+*/
