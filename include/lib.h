@@ -7,7 +7,7 @@
 
 #define MAX_TITLE 200
 #define MAX_AUTHORS 200
-#define MAX_YEAR 4
+#define MAX_YEAR 5
 #define MAX_PATH 64
 
 typedef struct {
@@ -37,6 +37,8 @@ void handle_lines_with_keyword(Command *cmd, GHashTable *table);
 void handle_client_response(Command *cmd, GHashTable *table);
 void handle_shutdown(Command *cmd, GHashTable *table);
 void handle_search(Command*cmd, GHashTable *table);
-
+void handle_add_load(char* args, GHashTable *table, int* current_id);
+void handle_save_metadata(GHashTable *table, const char *filename);
+void handle_load_metadata(GHashTable *table, const char *filename);
 
 #endif

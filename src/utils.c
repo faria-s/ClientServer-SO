@@ -71,6 +71,7 @@ void handle_add(Command *cmd, GHashTable *table, int *current_id) {
     strncpy(doc->year, year, MAX_YEAR);
     strncpy(doc->path, path, MAX_PATH);
 
+    printf("%s\n", doc->year);
     // ===========================Verifying If Path Exists=================================
     char response[128];
     if(access(doc->path,F_OK) == 0){
@@ -243,19 +244,23 @@ void handle_search(Command *cmd, GHashTable *table) {
 
         strcat(response, "[");
 
+        // ===========================Gets Number of Indexed Documents=================================
         int size = g_hash_table_size(table);
         int first = 1;
 
+        // ===========================Verifies Every Document=================================
         for (int i = 1; i <= size; i++) {
             DocumentInfo *doc = find_document_by_id(table, i);
             if (!doc) continue;
 
+            // ===========================Creating Pipe=================================
             int pfd[2];
             if (pipe(pfd) == -1) {
                 perror("pipe failed");
                 continue;
             }
 
+            // ===========================Creating Child Process To Execute grep=================================
             pid_t pid = fork();
             if (pid == -1) {
                 perror("fork failed");
@@ -265,27 +270,33 @@ void handle_search(Command *cmd, GHashTable *table) {
             }
 
             if (pid == 0) {
-                // Child
-                close(pfd[0]); // Close read end
-                dup2(pfd[1], STDOUT_FILENO); // Redirect stdout to pipe
-                close(pfd[1]); // Close original write end (now duplicated)
+                // ===========================CHILD=================================
+                close(pfd[0]);
+                // ===========================STDOUT Poiting At Writing Pipe=================================
+                dup2(pfd[1], STDOUT_FILENO);
+                close(pfd[1]);
 
+                // ===========================Executing Grep=================================
                 execlp("grep", "grep", keyword, doc->path, NULL);
 
                 perror("execlp failed");
                 _exit(1);
             } else {
-                // Parent
-                close(pfd[1]); // Close write end
+                // ===========================PARENT=================================
+                close(pfd[1]);
 
+                // ===========================Reads Grep Output=================================
                 char buffer[256];
                 ssize_t count = read(pfd[0], buffer, sizeof(buffer) - 1);
                 close(pfd[0]);
 
+                // ===========================Waits For Child Process To Finish=================================
                 int status;
                 waitpid(pid, &status, 0);
 
+                // ===========================Verifies If Grep Output Is Empty=================================
                 if (count > 0) {
+                    // ===========================Adds Document ID To Response=================================
                     if (!first) {
                         strcat(response, ",");
                     }
@@ -355,6 +366,10 @@ void handle_shutdown(Command *cmd, GHashTable *table) {
     close(fd);
 }
 
+void handle_saving_data(){
+
+}
+
 void handle_client_response(Command *cmd, GHashTable *table) {
     switch (cmd->flag)
     {
@@ -372,24 +387,99 @@ void handle_client_response(Command *cmd, GHashTable *table) {
     }
 }
 
-/*
+void handle_save_metadata(GHashTable *table, const char *filename) {
+    int fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd == -1) {
+        perror("Error opening metadata file for writing");
+        return;
+    }
 
-else if(cmd->number_arguments == 4){
-    // ===========================Getting arguments from the command=================================
-    char *keyword = strtok(args, "|");
-    char *nr_processes= strtok(NULL, "|");
+    char insert_line[512];
+    GHashTableIter iter;
+    gpointer key, value;
+    g_hash_table_iter_init(&iter, table);
 
-    // ===========================Getting key from the command=================================
-    int max_processes = atoi(nr_processes);
-    if(!max_processes){
-        perror("Invalid nr_processes input\n");
+    while (g_hash_table_iter_next(&iter, &key, &value)) {
+        DocumentInfo *doc = (DocumentInfo *)value;
+        printf("%s\n",doc->year);
+        snprintf(insert_line, sizeof(insert_line), "%s|%s|%s|%s\n", doc->title, doc->authors, doc->year, doc->path);
+        write(fd, insert_line, strlen(insert_line));
+    }
+
+    close(fd);
+}
+
+void handle_add_load(char* read_args, GHashTable *table, int* current_id) {
+    // ===========================Setting up variables=================================
+    char *args = strdup(read_args);
+    char *title = strtok(args, "|");
+    char *authors = strtok(NULL, "|");
+    char *year = strtok(NULL, "|");
+    char *path = strtok(NULL, "|");
+
+    // ===========================Variable checking=================================
+    if (!title || !authors || !year || !path) {
+        perror("Error: invalid arguments with flag -a\n");
         free(args);
         return;
     }
-}
-else{
-    perror("Incorrect number of arguments \n");
+
+    // ===========================Creating and Filling Structure=================================
+    DocumentInfo *doc = malloc(sizeof(DocumentInfo));
+    strncpy(doc->title, title, MAX_TITLE);
+    strncpy(doc->authors, authors, MAX_AUTHORS);
+    strncpy(doc->year, year, MAX_YEAR);
+    strncpy(doc->path, path, MAX_PATH);
+
+    // ===========================Verifying If Path Exists=================================
+    if(access(doc->path,F_OK) == 0){
+        // ===========================Unique identifier to send to client=================================
+        int *id = malloc(sizeof(int));
+        *id = (*current_id)++;
+
+        // ===========================Inserting in Hashtable=================================
+        g_hash_table_insert(table, id, doc);
+
+    }
     free(args);
-    return;
 }
-*/
+
+void handle_load_metadata(GHashTable *table, const char *filename) {
+    // ===========================Opening Meta_Data File=================================
+    int fd = open(filename, O_RDONLY);
+    if (fd == -1) {
+        perror("Couldn't open load_metadata file\n");
+        return;
+    }
+
+    char buffer[512];
+    int bytes_read, index = 1;
+    char temp[1024] = {0};
+    int temp_len = 0;
+
+    // ===========================Reads File=================================
+    while ((bytes_read = read(fd, buffer, sizeof(buffer))) > 0) {
+        int i = 0;
+        while (i < bytes_read) {
+            // ===========================Searches For End of Line=================================
+            if (buffer[i] == '\n') {
+                temp[temp_len] = '\0';
+                // ===========================Inserts Doc=================================
+                handle_add_load(temp, table, &index);
+                temp_len = 0;
+            } else {
+                // ===========================Handles Any Remaining Partial Line=================================
+                temp[temp_len++] = buffer[i];
+            }
+            i++;
+        }
+    }
+
+    // ===========================Processes Remaining Data After Last Read=================================
+    if (temp_len > 0) {
+        temp[temp_len] = '\0';
+        handle_add_load(temp, table, &index);
+    }
+
+    close(fd);
+}

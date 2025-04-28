@@ -16,6 +16,11 @@ int main() {
     document_table = g_hash_table_new_full(g_int_hash, g_int_equal, free, free);
     int current_id = 1;
 
+    // ===========================Loads Data=================================
+    if(access("meta_info.txt", F_OK) == 0){
+        handle_load_metadata(document_table,"meta_info.txt");
+    }
+
      // ===========================Avoid Zombies=================================
      signal(SIGCHLD, SIG_IGN);
 
@@ -91,6 +96,7 @@ int main() {
 
         // ===========================Checking for server ending flag===========================
         if (cmd.flag == 'f') {
+            handle_save_metadata(document_table, "meta_info.txt");
             handle_shutdown(&cmd,document_table);
             printf("Server is shutting down\n");
             g_hash_table_destroy(document_table);
