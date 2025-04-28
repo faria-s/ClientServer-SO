@@ -3,7 +3,7 @@ PKG_CONFIG := pkg-config
 GLIB_CFLAGS := $(shell $(PKG_CONFIG) --cflags glib-2.0)
 GLIB_LIBS := $(shell $(PKG_CONFIG) --libs glib-2.0)
 
-CFLAGS = -Wall -g $(GLIB_CFLAGS) -I./src
+CFLAGS = -Wall -g -Iinclude $(GLIB_CFLAGS)
 LDFLAGS = $(GLIB_LIBS)
 
 # Lista de todos os arquivos fonte

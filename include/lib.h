@@ -20,6 +20,7 @@ typedef struct {
 typedef struct {
     char flag;                          // 'a', 'c', 'd', 'l', 's', 'f'
     char arguments[MAX_ARGUMENTS_SIZE]; // Todos os argumentos concatenados (separados por '|')
+    int number_arguments;               // number arguments
     int processID;                      // Para identificação do cliente (pode ser útil futuramente)
 } Command;
 
@@ -34,6 +35,10 @@ void handle_consult(Command *cmd, GHashTable *table);
 void handle_delete(Command *cmd, GHashTable *table);
 void handle_lines_with_keyword(Command *cmd, GHashTable *table);
 void handle_client_response(Command *cmd, GHashTable *table);
-
+void handle_shutdown(Command *cmd, GHashTable *table);
+void handle_search(Command*cmd, GHashTable *table);
+void handle_add_load(char* args, GHashTable *table, int* current_id);
+void handle_save_metadata(GHashTable *table, const char *filename);
+void handle_load_metadata(GHashTable *table, const char *filename);
 
 #endif

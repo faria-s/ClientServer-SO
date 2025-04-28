@@ -6,9 +6,9 @@
 #include <fcntl.h>
 
 #include <sys/stat.h>
+#include <sys/wait.h>
 #include <sys/types.h>
 #include <sys/time.h>
-#include <errno.h>
 
 #include "lib.h"
 
@@ -35,6 +35,7 @@ void build_command(Command *cmd, int argc, char *argv[]) {
     cmd->flag = argv[1][1];
     cmd->processID = getpid();
     cmd->arguments[0] = '\0';
+    cmd->number_arguments = argc;
 
     // ===========================Saving arguments splitted with '|'=================================
     for (int i = 2; i < argc; i++) {
@@ -58,7 +59,7 @@ void handle_add(Command *cmd, GHashTable *table, int *current_id) {
 
     // ===========================Variable checking=================================
     if (!title || !authors || !year || !path) {
-        fprintf(stderr, "Error: invalid arguments with flag -a\n");
+        perror("Error: invalid arguments with flag -a\n");
         free(args);
         return;
     }
@@ -70,16 +71,23 @@ void handle_add(Command *cmd, GHashTable *table, int *current_id) {
     strncpy(doc->year, year, MAX_YEAR);
     strncpy(doc->path, path, MAX_PATH);
 
-    // ===========================Unique identifier to send to client=================================
-    int *id = malloc(sizeof(int));
-    *id = (*current_id)++;
-
-    // ===========================Inserting in Hashtable=================================
-    g_hash_table_insert(table, id, doc);
-
-    // ===========================Building Response Message=================================
+    printf("%s\n", doc->year);
+    // ===========================Verifying If Path Exists=================================
     char response[128];
-    snprintf(response, sizeof(response), "Document %d indexed\n", *id);
+    if(access(doc->path,F_OK) == 0){
+        // ===========================Unique identifier to send to client=================================
+        int *id = malloc(sizeof(int));
+        *id = (*current_id)++;
+
+        // ===========================Inserting in Hashtable=================================
+        g_hash_table_insert(table, id, doc);
+
+        // ===========================Building Response Message=================================
+        snprintf(response, sizeof(response), "Document %d indexed\n", *id);
+    }
+    else{
+        snprintf(response, sizeof(response), "Document path doesn't exist\n");
+    }
 
     // ===========================Setting up FIFO name=================================
     char fifo_name[64];
@@ -179,8 +187,6 @@ void handle_lines_with_keyword(Command *cmd, GHashTable *table) {
     char *keyword = strtok(NULL, "|");
 
     // ===========================Setting up response to the client=================================
-    // ! ISTO PROVAVELMENTE NÃO ESTÁ BEM ATÉ À ABERTURA DO FIFO EM BAIXO - VERIFICAR !!!!
-    // ! CONFIRMADO, NÃO ESTÁ BEM :(
     char response[128];
 
     if (!key_str || !keyword) {
@@ -195,7 +201,7 @@ void handle_lines_with_keyword(Command *cmd, GHashTable *table) {
             // ===========================Setting up 'grep | wc -l' command=================================
             char command[512];
             snprintf(command, sizeof(command),
-                     "grep -c '%s' '%s' 2>/dev/null", keyword, doc->path);
+                     "grep -c '%s' '%s' 2>/dev/null", keyword, doc->path); // hides error messages
 
             FILE *fp = popen(command, "r");
             if (fp == NULL) {
@@ -227,6 +233,143 @@ void handle_lines_with_keyword(Command *cmd, GHashTable *table) {
     free(args);
 }
 
+void handle_search(Command *cmd, GHashTable *table) {
+    char *args = strdup(cmd->arguments);
+    char response[512];
+    response[0] = '\0';
+
+    // ===========================Verifies If Has nr_processes=================================
+    if (cmd->number_arguments == 3) {
+        char *keyword = args;
+
+        strcat(response, "[");
+
+        // ===========================Gets Number of Indexed Documents=================================
+        int size = g_hash_table_size(table);
+        int first = 1;
+
+        // ===========================Verifies Every Document=================================
+        for (int i = 1; i <= size; i++) {
+            DocumentInfo *doc = find_document_by_id(table, i);
+            if (!doc) continue;
+
+            // ===========================Creating Pipe=================================
+            int pfd[2];
+            if (pipe(pfd) == -1) {
+                perror("pipe failed");
+                continue;
+            }
+
+            // ===========================Creating Child Process To Execute grep=================================
+            pid_t pid = fork();
+            if (pid == -1) {
+                perror("fork failed");
+                close(pfd[0]);
+                close(pfd[1]);
+                continue;
+            }
+
+            if (pid == 0) {
+                // ===========================CHILD=================================
+                close(pfd[0]);
+                // ===========================STDOUT Poiting At Writing Pipe=================================
+                dup2(pfd[1], STDOUT_FILENO);
+                close(pfd[1]);
+
+                // ===========================Executing Grep=================================
+                execlp("grep", "grep", keyword, doc->path, NULL);
+
+                perror("execlp failed");
+                _exit(1);
+            } else {
+                // ===========================PARENT=================================
+                close(pfd[1]);
+
+                // ===========================Reads Grep Output=================================
+                char buffer[256];
+                ssize_t count = read(pfd[0], buffer, sizeof(buffer) - 1);
+                close(pfd[0]);
+
+                // ===========================Waits For Child Process To Finish=================================
+                int status;
+                waitpid(pid, &status, 0);
+
+                // ===========================Verifies If Grep Output Is Empty=================================
+                if (count > 0) {
+                    // ===========================Adds Document ID To Response=================================
+                    if (!first) {
+                        strcat(response, ",");
+                    }
+                    char id_str[16];
+                    snprintf(id_str, sizeof(id_str), "%d", i);
+                    strcat(response, id_str);
+                    first = 0;
+                }
+            }
+        }
+
+        strcat(response, "]\n");
+    }
+    else if(cmd->number_arguments == 4){
+        // ===========================Getting arguments from the command=================================
+        char *keyword = strtok(args, "|");
+        char *nr_processes= strtok(NULL, "|");
+
+        // ===========================Getting key from the command=================================
+        int max_processes = atoi(nr_processes);
+        if(!max_processes){
+            perror("Invalid nr_processes input\n");
+            free(args);
+            return;
+        }
+    }
+    else{
+        perror("Incorrect number of arguments \n");
+        free(args);
+        return;
+    }
+
+    // ===========================Setting up FIFO name=================================
+    char fifo_name[64];
+    snprintf(fifo_name, sizeof(fifo_name), "/tmp/client_%d", cmd->processID);
+
+    // ===========================Opening FIFO=================================
+    int fd = open(fifo_name, O_WRONLY);
+    if (fd == -1) {
+        perror("Error opening response FIFO server side\n");
+        free(args);
+        return;
+    }
+
+    // ===========================Sending Response to client=================================
+    write(fd, response, strlen(response));
+    close(fd);
+    free(args);
+}
+
+void handle_shutdown(Command *cmd, GHashTable *table) {
+    char response[128];
+    snprintf(response, sizeof(response), "Server is shutting down\n");
+
+    // ===========================Setting up FIFO name=================================
+    char fifo_name[64];
+    snprintf(fifo_name, sizeof(fifo_name), "/tmp/client_%d", cmd->processID);
+
+    // ===========================Opening FIFO=================================
+    int fd = open(fifo_name, O_WRONLY);
+    if (fd == -1) {
+        perror("Error opening response FIFO server side\n");
+        return;
+    }
+    // ===========================Sending Response to client=================================
+    write(fd, response, strlen(response));
+    close(fd);
+}
+
+void handle_saving_data(){
+
+}
+
 void handle_client_response(Command *cmd, GHashTable *table) {
     switch (cmd->flag)
     {
@@ -234,12 +377,109 @@ void handle_client_response(Command *cmd, GHashTable *table) {
         handle_consult(cmd, table);
         break;
     case 'l':
-        handle_lines_with_keyword(cmd, table); // TODO : não está bem implementado :(
+        handle_lines_with_keyword(cmd, table);
         break;
-    case 's':
-        // TODO logic for flag -s
-        break;      
+   case 's':
+        handle_search(cmd, table);
+        break;
     default:
         break;
     }
+}
+
+void handle_save_metadata(GHashTable *table, const char *filename) {
+    int fd = open(filename, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+    if (fd == -1) {
+        perror("Error opening metadata file for writing");
+        return;
+    }
+
+    char insert_line[512];
+    GHashTableIter iter;
+    gpointer key, value;
+    g_hash_table_iter_init(&iter, table);
+
+    while (g_hash_table_iter_next(&iter, &key, &value)) {
+        DocumentInfo *doc = (DocumentInfo *)value;
+        printf("%s\n",doc->year);
+        snprintf(insert_line, sizeof(insert_line), "%s|%s|%s|%s\n", doc->title, doc->authors, doc->year, doc->path);
+        write(fd, insert_line, strlen(insert_line));
+    }
+
+    close(fd);
+}
+
+void handle_add_load(char* read_args, GHashTable *table, int* current_id) {
+    // ===========================Setting up variables=================================
+    char *args = strdup(read_args);
+    char *title = strtok(args, "|");
+    char *authors = strtok(NULL, "|");
+    char *year = strtok(NULL, "|");
+    char *path = strtok(NULL, "|");
+
+    // ===========================Variable checking=================================
+    if (!title || !authors || !year || !path) {
+        perror("Error: invalid arguments with flag -a\n");
+        free(args);
+        return;
+    }
+
+    // ===========================Creating and Filling Structure=================================
+    DocumentInfo *doc = malloc(sizeof(DocumentInfo));
+    strncpy(doc->title, title, MAX_TITLE);
+    strncpy(doc->authors, authors, MAX_AUTHORS);
+    strncpy(doc->year, year, MAX_YEAR);
+    strncpy(doc->path, path, MAX_PATH);
+
+    // ===========================Verifying If Path Exists=================================
+    if(access(doc->path,F_OK) == 0){
+        // ===========================Unique identifier to send to client=================================
+        int *id = malloc(sizeof(int));
+        *id = (*current_id)++;
+
+        // ===========================Inserting in Hashtable=================================
+        g_hash_table_insert(table, id, doc);
+
+    }
+    free(args);
+}
+
+void handle_load_metadata(GHashTable *table, const char *filename) {
+    // ===========================Opening Meta_Data File=================================
+    int fd = open(filename, O_RDONLY);
+    if (fd == -1) {
+        perror("Couldn't open load_metadata file\n");
+        return;
+    }
+
+    char buffer[512];
+    int bytes_read, index = 1;
+    char temp[1024] = {0};
+    int temp_len = 0;
+
+    // ===========================Reads File=================================
+    while ((bytes_read = read(fd, buffer, sizeof(buffer))) > 0) {
+        int i = 0;
+        while (i < bytes_read) {
+            // ===========================Searches For End of Line=================================
+            if (buffer[i] == '\n') {
+                temp[temp_len] = '\0';
+                // ===========================Inserts Doc=================================
+                handle_add_load(temp, table, &index);
+                temp_len = 0;
+            } else {
+                // ===========================Handles Any Remaining Partial Line=================================
+                temp[temp_len++] = buffer[i];
+            }
+            i++;
+        }
+    }
+
+    // ===========================Processes Remaining Data After Last Read=================================
+    if (temp_len > 0) {
+        temp[temp_len] = '\0';
+        handle_add_load(temp, table, &index);
+    }
+
+    close(fd);
 }
