@@ -41,7 +41,9 @@ int main(int argc, char *argv[]) {
         handle_error("opening metadata file for writing");
     }
 
+
     // ===========================Avoid Zombies=================================
+
      signal(SIGCHLD, SIG_IGN);
 
     // ===========================Creating Main FIFO=================================
@@ -83,7 +85,9 @@ int main(int argc, char *argv[]) {
             close(pfd[0]);
 
             // ===========================Checking for modification flag===========================
+
             write(pfd[1], &cmd, sizeof(Command));
+
             close(pfd[1]);
 
             _exit(0);
@@ -107,7 +111,9 @@ int main(int argc, char *argv[]) {
 
         // ===========================Checking for server ending flag===========================
         if (cmd.flag == 'f') {
+
             handle_shutdown(&cmd, cache);
+
             printf("Server is shutting down\n");
             running = 0;
         }
