@@ -1,33 +1,53 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <fcntl.h>
+#include <string.h>
 #include <sys/types.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #include <signal.h>
+#include <glib.h>
 
-#include "lib.h"
+#include "server_helpers.h"
+#include "cache.h"
+#include "utils.h"
 
-#define PIPE_NAME "/tmp/doc_index_pipe"
 
-int main() {
-    // ===========================Setting variables=================================
-    GHashTable *document_table;
-    document_table = g_hash_table_new_full(g_int_hash, g_int_equal, free, free);
+int main(int argc, char *argv[]) {
+    // ===========================Verifying Input=================================
+    if(argc != 3 || (access(argv[1],F_OK) == -1) || (atoi(argv[2]) == 0)){
+        handle_error("Invalid Server Start Input\n");
+    }
+    char *path = strdup(argv[1]);
+    int cache_size = atoi(argv[2]);
+
     int current_id = 1;
+    int save_fd = -1;
+    // ===========================Setting Cache=================================
+    Cache *cache = cache_new(cache_size);
 
-    // ===========================Loads Data=================================
-    if(access("meta_info.txt", F_OK) == 0){
-        handle_load_metadata(document_table,"meta_info.txt");
+    // ===========================Setting Cache=================================
+    int header[HEADER_SIZE] = {0};
+
+    // ===========================Opens Saved Data File=================================
+    if(access(DISK_PATH, F_OK) == 0){
+        save_fd = open(DISK_PATH, O_RDWR, 0644);
+        load_header(save_fd, header);
+    }
+    else{
+        save_fd = create_save_file(DISK_PATH, header);
+    }
+    if (save_fd == -1) {
+        handle_error("opening metadata file for writing");
     }
 
-     // ===========================Avoid Zombies=================================
+    // ===========================Avoid Zombies=================================
      signal(SIGCHLD, SIG_IGN);
 
     // ===========================Creating Main FIFO=================================
     if (access(PIPE_NAME, F_OK) == -1) {
         if (mkfifo(PIPE_NAME, 0666) != 0) {
-            handle_error("Error creating main fifo server side\n");
+            handle_error("creating main fifo server side\n");
         }
     }
 
@@ -37,7 +57,7 @@ int main() {
         // ===========================Opening FIFO=================================
         int fd = open(PIPE_NAME, O_RDONLY);
         if (fd == -1) {
-            handle_error("Error opening server side FIFO\n");
+            handle_error("opening server side FIFO\n");
         }
 
         // ===========================Reading command=================================
@@ -46,13 +66,13 @@ int main() {
         close(fd);
 
         if (bytes != sizeof(Command)) {
-            handle_error("Error reading from FIFO server side\n");
+            handle_error("reading from FIFO server side\n");
         }
 
         // ===========================Creating pipe for father-children communication=================================
         int pfd[2];
         if (pipe(pfd) == -1) {
-            handle_error("Error creating anonymous pipe\n");
+            handle_error("creating anonymous pipe\n");
         }
 
         // ===========================Creating child process=================================
@@ -63,12 +83,7 @@ int main() {
             close(pfd[0]);
 
             // ===========================Checking for modification flag===========================
-            if (cmd.flag == 'a' || cmd.flag == 'd') {
-                write(pfd[1], &cmd, sizeof(Command));
-            } else {
-                handle_client_response(&cmd, document_table);
-            }
-
+            write(pfd[1], &cmd, sizeof(Command));
             close(pfd[1]);
 
             _exit(0);
@@ -77,17 +92,13 @@ int main() {
             close(pfd[1]);
 
             // ===========================Checking for modification flag===========================
-            if (cmd.flag == 'a' || cmd.flag == 'd') {
+            if (cmd.flag == 'a' || cmd.flag == 'd' || cmd.flag == 'c' || cmd.flag == 'l' || cmd.flag == 's') {
                 Command received;
                 ssize_t r = read(pfd[0], &received, sizeof(Command));
                 if (r == sizeof(Command)) {
-                    if (received.flag == 'a') {
-                        handle_add(&received, document_table, &current_id);
-                    } else if (received.flag == 'd') {
-                        handle_delete(&received, document_table);
-                    }
+                    handle_client_response(&received, cache, save_fd,&current_id, path, header);
                 } else {
-                    handle_error("Error reading from anonymous pipe\n");
+                    handle_error("reading from anonymous pipe\n");
                 }
             }
 
@@ -96,14 +107,16 @@ int main() {
 
         // ===========================Checking for server ending flag===========================
         if (cmd.flag == 'f') {
-            handle_save_metadata(document_table, "meta_info.txt");
-            handle_shutdown(&cmd,document_table);
+            handle_shutdown(&cmd, cache);
             printf("Server is shutting down\n");
-            g_hash_table_destroy(document_table);
             running = 0;
         }
     }
 
+    if(save_fd){
+        close(save_fd);
+    }
+    free(path);
     unlink(PIPE_NAME);
     return 0;
 }
