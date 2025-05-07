@@ -5,7 +5,7 @@
 #include <unistd.h>
 #include <string.h>
 
-#include "lib.h"
+#include "server_helpers.h"
 
 #define PIPE_NAME "/tmp/doc_index_pipe"
 
