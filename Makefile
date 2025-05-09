@@ -17,15 +17,19 @@ CLIENT_EXEC = bin/dclient
 # Regras principais
 all: folders $(SERVER_EXEC) $(CLIENT_EXEC)
 
+#server: folders $(SERVER_EXEC)
+
+#client: folders $(CLIENT_EXEC)
+
 folders:
 	@mkdir -p obj bin tmp
 
 # Compilar dserver
-$(SERVER_EXEC): obj/dserver.o obj/utils.o
+$(SERVER_EXEC): obj/dserver.o obj/utils.o obj/server_helpers.o obj/cache.o
 	$(CC) $^ -o $@ $(LDFLAGS)
 
 # Compilar dclient
-$(CLIENT_EXEC): obj/dclient.o obj/utils.o
+$(CLIENT_EXEC): obj/dclient.o obj/utils.o obj/server_helpers.o obj/cache.o
 	$(CC) $^ -o $@ $(LDFLAGS)
 
 # Regra geral para compilar objetos
@@ -33,4 +37,4 @@ obj/%.o: src/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -rf obj/* bin/* tmp/* obj bin tmpa
+	rm -rf obj/* bin/* tmp/* obj bin tmp meta_info.txt
