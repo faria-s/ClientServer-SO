@@ -49,7 +49,8 @@ void build_command(Command *cmd, int argc, char *argv[]) {
     }
 }
 
-void handle_add(Command *cmd, Cache *cache, int *current_id, int save_fd, char* folder_path, int header[]) {
+void handle_add(Command *cmd, Cache *cache, int *current_id, int save_fd, char* folder_path, int **header_ptr) {
+    int* header = *header_ptr;
     // ===========================Setting up variables=================================
     char *args = strdup(cmd->arguments);
     char *title = strtok(args, "|");
@@ -69,7 +70,8 @@ void handle_add(Command *cmd, Cache *cache, int *current_id, int save_fd, char* 
     snprintf(path, sizeof(path), "%s%s", folder_path, file_path);
 
     // ===========================Unique identifier to send to client=================================
-    int index = find_empty_index(header);
+    int index = find_empty_index(header_ptr, save_fd);
+    header = *header_ptr;
 
     // ===========================Creating and Filling Structure=================================
     DocumentInfo *doc = malloc(sizeof(DocumentInfo));
@@ -90,12 +92,9 @@ void handle_add(Command *cmd, Cache *cache, int *current_id, int save_fd, char* 
         header[index] = index;
         handle_write_on_disk(save_fd, doc,cache,'a', doc->id);
 
-        //for(int j= 0; j < HEADER_SIZE; j++){
-            //printf("%d: %d\n", j, header[j]);
-            //}
-
         // ===========================Building Response Message=================================
         snprintf(response, sizeof(response), "Document %d indexed\n", *id);
+        free(id);
     }
     else{
         snprintf(response, sizeof(response), "Document path doesn't exist\n");
@@ -120,12 +119,12 @@ void handle_add(Command *cmd, Cache *cache, int *current_id, int save_fd, char* 
 }
 
 
-void handle_consult(Command *cmd, Cache *cache, int save_fd, int header[]) {
+void handle_consult(Command *cmd, Cache *cache, int save_fd, int **header) {
     // ===========================Getting key from the command=================================
     int key = atoi(cmd->arguments);
 
     // ===========================Searching the Hashtable=================================
-    handle_file_exists(cache, save_fd, key, header);
+    handle_file_exists(cache, save_fd, key, *header);
     DocumentInfo *doc = cache_get(cache, key);
 
     // ===========================Setting up response to the client=================================
@@ -242,9 +241,9 @@ void handle_lines_with_keyword(Command *cmd, Cache *cache, int save_fd, int head
     free(args);
 }
 
-void handle_search(Command *cmd,Cache *cache) {
+void handle_search(Command *cmd,Cache *cache, int save_fd, int header[]) {
     char *args = strdup(cmd->arguments);
-    char response[512];
+    char response[2048];
     response[0] = '\0';
 
     // ===========================Verifies If Has nr_processes=================================
@@ -254,12 +253,12 @@ void handle_search(Command *cmd,Cache *cache) {
         strcat(response, "[");
 
         // ===========================Gets Number of Indexed Documents=================================
-        int size = g_hash_table_size(cache->cache);
         int first = 1;
 
         // ===========================Verifies Every Document=================================
-        for (int i = 1; i <= size; i++) {
-            DocumentInfo *doc = find_document_by_id(cache->cache, i);
+        for (int i = 1; i < HEADER_SIZE; i++) {
+            handle_file_exists(cache, save_fd, i, header);
+            DocumentInfo *doc = cache_get(cache, i);
 
             if (!doc) continue;
 
@@ -377,24 +376,69 @@ void handle_shutdown(Command *cmd, Cache *cache) {
     close(fd);
 }
 
+void handle_cache(Command *cmd, Cache *cache){
+    if (!cache) {
+        printf("Cache is NULL.\n");
+        return;
+    }
 
-void handle_client_response(Command *cmd, Cache* cache, int save_fd, int* current_id, char* path, int header[]) {
+    Cache_entry *current = cache->head;
+    if (!current) {
+        printf("Cache is empty.\n");
+    }
+
+    // ===========================Building Response=================================
+    char response[1024]; // Increased buffer size for larger responses
+    response[0] = '\0';  // Initialize the response as an empty string
+
+    snprintf(response, sizeof(response), "Cache Size: %d\n", cache->size);
+
+    while (current) {
+        char entry[128]; // Temporary buffer for each cache entry
+        snprintf(entry, sizeof(entry), "ID: %d\n", current->id);
+        strncat(response, entry, sizeof(response) - strlen(response) - 1); // Append to response
+        current = current->next;
+    }
+
+    // ===========================Setting up FIFO name=================================
+    char fifo_name[64];
+    snprintf(fifo_name, sizeof(fifo_name), "/tmp/client_%d", cmd->processID);
+
+    // ===========================Opening FIFO=================================
+    int fd = open(fifo_name, O_WRONLY);
+    if (fd == -1) {
+        perror("Error opening response FIFO server side\n");
+        return;
+    }
+
+    // ===========================Sending Response to client=================================
+    if (write(fd, response, strlen(response)) == -1) {
+        perror("Error writing response to FIFO server side\n");
+    }
+
+    close(fd);
+}
+
+void handle_client_response(Command *cmd, Cache* cache, int save_fd, int* current_id, char* path, int **header_ptr){
     switch (cmd->flag)
     {
     case 'a':
-        handle_add(cmd, cache, current_id,save_fd,path,header);
+        handle_add(cmd, cache, current_id,save_fd,path,header_ptr);
         break;
     case 'd':
-        handle_delete(cmd, cache, save_fd, header);
+        handle_delete(cmd, cache, save_fd, *header_ptr);
         break;
     case 'c':
-        handle_consult(cmd, cache,save_fd, header);
+        handle_consult(cmd, cache,save_fd, header_ptr);
         break;
     case 'l':
-        handle_lines_with_keyword(cmd, cache, save_fd, header);
+        handle_lines_with_keyword(cmd, cache, save_fd, *header_ptr);
         break;
    case 's':
-        handle_search(cmd, cache);
+        handle_search(cmd, cache,save_fd, *header_ptr);
+        break;
+    case 'p':
+        handle_cache(cmd,cache);
         break;
     default:
         break;
@@ -405,71 +449,119 @@ int handle_write_on_disk(int fd, DocumentInfo *doc, Cache *cache, char cmd, int 
     int writed = 0;
 
     if (fd == -1) {
-        handle_error("Write on save file");
+        handle_error("Invalid file descriptor for meta_info.txt");
     }
 
-    if (lseek(fd, (id)*sizeof(int), SEEK_SET) == -1) {
-        handle_error("lseek to beginning failed");
+    int NUMBER_OF_HEADERS;
+    if (lseek(fd, 0, SEEK_SET) == -1) {
+        handle_error("Failed to seek to the beginning of the file");
+    }
+    if (read(fd, &NUMBER_OF_HEADERS, sizeof(int)) != sizeof(int)) {
+        handle_error("Failed to read the number of headers");
     }
 
-    if(cmd == 'a'){
+    int header_index = id / HEADER_SIZE;
+    int header_offset = id % HEADER_SIZE;
 
-        if (write(fd, &id, sizeof(int)) != sizeof(int)) {
-            handle_error("Failed to write current_id");
+    if (header_index >= NUMBER_OF_HEADERS) {
+        NUMBER_OF_HEADERS++;
+        if (lseek(fd, 0, SEEK_SET) == -1) {
+            handle_error("Failed to seek to the beginning of the file to update NUMBER_OF_HEADERS");
+        }
+        if (write(fd, &NUMBER_OF_HEADERS, sizeof(int)) != sizeof(int)) {
+            handle_error("Failed to update the number of headers");
         }
 
-        if (lseek(fd, 0, SEEK_END) == -1) {
-            handle_error("lseek to end failed");
+        int zero = 0;
+        if (lseek(fd, header_index * (HEADER_SIZE * sizeof(int) + HEADER_SIZE * sizeof(DocumentInfo)), SEEK_END) == -1) {
+            handle_error("Failed to seek to the end of the file to add a new header");
+        }
+        for (int i = 0; i < HEADER_SIZE; i++) {
+            if (write(fd, &zero, sizeof(int)) != sizeof(int)) {
+                handle_error("Failed to initialize new header block");
+            }
+        }
+    }
+
+    int search_header = header_index * (HEADER_SIZE * sizeof(int) + HEADER_SIZE * sizeof(DocumentInfo)) +
+                        header_offset * sizeof(int);
+
+    if (lseek(fd, search_header, SEEK_SET) == -1) {
+        handle_error("Failed to seek to header position");
+    }
+
+    if (cmd == 'a') {
+        if (write(fd, &id, sizeof(int)) != sizeof(int)) {
+            handle_error("Failed to write ID to header");
+        }
+
+        int search_doc_struct = header_index * (HEADER_SIZE * sizeof(int) + HEADER_SIZE * sizeof(DocumentInfo)) +
+                                (HEADER_SIZE * sizeof(int)) + (header_offset * sizeof(DocumentInfo));
+
+        if (lseek(fd, search_doc_struct, SEEK_SET) == -1) {
+            handle_error("Failed to seek to document metadata position");
         }
 
         if (write(fd, doc, sizeof(DocumentInfo)) != sizeof(DocumentInfo)) {
-            handle_error("Failed to write DocumentInfo");
+            handle_error("Failed to write DocumentInfo to disk");
         }
 
         cache_put(cache, doc);
         writed = 1;
-    }
-    else{
-        int set_zero = 0;
-
-        if (write(fd, &set_zero, sizeof(int)) != sizeof(int)) {
-            handle_error("Failed to write current_id");
+    } else if (cmd == 'd') {
+        int zero = 0;
+        if (write(fd, &zero, sizeof(int)) != sizeof(int)) {
+            handle_error("Failed to write zero to header for deletion");
         }
 
         writed = 1;
     }
 
     return writed;
+
 }
 
 int handle_file_exists(Cache *cache, int fd, int index, int header[]) {
     int where_exists = NOT_FOUND;
 
-    int key = index;
-
-    if (g_hash_table_contains(cache->cache, &key)) {
+    if (g_hash_table_contains(cache->cache, &index)) {
         where_exists = FOUND_IN_CACHE;
-    } else{
-        int isIndexed;
+    } else {
+        int header_index = index / HEADER_SIZE;
+        int header_offset = index % HEADER_SIZE;
 
-        lseek(fd, index * sizeof(int), SEEK_SET);
-        if(read(fd, &isIndexed, sizeof(int)) != sizeof(int)){
-            handle_error("couldn't read header");
+        int header_position = header_index * (HEADER_SIZE * sizeof(int) + HEADER_SIZE * sizeof(DocumentInfo));
+
+        if (lseek(fd, header_position + header_offset * sizeof(int), SEEK_SET) == -1) {
+            perror("Error seeking to header position");
+            return NOT_FOUND;
         }
 
-        if(isIndexed > 0){
+        int isIndexed;
+        if (read(fd, &isIndexed, sizeof(int)) != sizeof(int)) {
+            perror("Error reading isIndexed value");
+            return NOT_FOUND;
+        }
+
+        if (isIndexed > 0) {
             DocumentInfo *doc = malloc(sizeof(DocumentInfo));
             if (!doc) {
-                handle_error("doc allocate memory fail");
+                handle_error("Failed to allocate memory for DocumentInfo");
             }
 
-            printf("Entrou");
-            lseek(fd, ((index-1) * sizeof(DocumentInfo)) + (HEADER_SIZE * sizeof(int)), SEEK_SET);
+            off_t doc_position = header_position + (HEADER_SIZE * sizeof(int)) + (header_offset * sizeof(DocumentInfo));
+
+            if (lseek(fd, doc_position, SEEK_SET) == -1) {
+                perror("Error seeking to document position");
+                free(doc);
+                return NOT_FOUND;
+            }
 
             if (read(fd, doc, sizeof(DocumentInfo)) == sizeof(DocumentInfo)) {
                 where_exists = FOUND_ON_DISK;
                 cache_put(cache, doc);
             } else {
+                perror("Error reading document metadata");
                 free(doc);
             }
         }

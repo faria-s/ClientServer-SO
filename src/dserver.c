@@ -27,14 +27,28 @@ int main(int argc, char *argv[]) {
     Cache *cache = cache_new(cache_size);
 
     // ===========================Setting Cache=================================
-    int header[HEADER_SIZE] = {0};
+    int NUMBER_OF_HEADERS;
+    int* header;
 
     // ===========================Opens Saved Data File=================================
     if(access(DISK_PATH, F_OK) == 0){
         save_fd = open(DISK_PATH, O_RDWR, 0644);
-        load_header(save_fd, header);
+
+        if(save_fd == -1){
+            handle_error("Opening save file");
+        }
+
+        if(read(save_fd, &NUMBER_OF_HEADERS, sizeof(int)) != sizeof(int)){
+            handle_error("reading number of headers while loading header");
+        }
+
+        header = calloc(HEADER_SIZE*NUMBER_OF_HEADERS, sizeof(int));
+        load_header(save_fd, header, NUMBER_OF_HEADERS);
     }
     else{
+        NUMBER_OF_HEADERS = 1;
+        header = calloc(HEADER_SIZE,sizeof(int));
+        header[0] = 1;
         save_fd = create_save_file(DISK_PATH, header);
     }
     if (save_fd == -1) {
@@ -96,11 +110,11 @@ int main(int argc, char *argv[]) {
             close(pfd[1]);
 
             // ===========================Checking for modification flag===========================
-            if (cmd.flag == 'a' || cmd.flag == 'd' || cmd.flag == 'c' || cmd.flag == 'l' || cmd.flag == 's') {
+            if (cmd.flag == 'a' || cmd.flag == 'd' || cmd.flag == 'c' || cmd.flag == 'l' || cmd.flag == 's' ||cmd.flag == 'p') {
                 Command received;
                 ssize_t r = read(pfd[0], &received, sizeof(Command));
                 if (r == sizeof(Command)) {
-                    handle_client_response(&received, cache, save_fd,&current_id, path, header);
+                    handle_client_response(&received, cache, save_fd,&current_id, path, &header);
                 } else {
                     handle_error("reading from anonymous pipe\n");
                 }

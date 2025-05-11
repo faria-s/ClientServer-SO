@@ -24,8 +24,10 @@ void print_doc(DocumentInfo *doc);
 
 int create_save_file(char* path, int header[]);
 
-void load_header(int fd, int header[]);
+void load_header(int fd, int header[], int NUMBER_OF_HEADERS);
 
-int find_empty_index(int header[]);
+int find_empty_index(int **header_ptr, int save_fd);
+
+void create_new_header(int **header_ptr, int save_fd);
 
 #endif

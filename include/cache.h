@@ -36,4 +36,6 @@ void cache_put(Cache* cache, DocumentInfo* doc);
 
 DocumentInfo *cache_get(Cache* cache, int id);
 
+void cache_entry_free(Cache_entry *entry);
+
 #endif

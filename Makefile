@@ -3,8 +3,8 @@ PKG_CONFIG := pkg-config
 GLIB_CFLAGS := $(shell $(PKG_CONFIG) --cflags glib-2.0)
 GLIB_LIBS := $(shell $(PKG_CONFIG) --libs glib-2.0)
 
-CFLAGS = -Wall -g -Iinclude $(GLIB_CFLAGS)
-LDFLAGS = $(GLIB_LIBS)
+CFLAGS = -Wall -g -fsanitize=address -Iinclude $(GLIB_CFLAGS)
+LDFLAGS = $(GLIB_LIBS) -fsanitize=address
 
 # Lista de todos os arquivos fonte
 SRC = $(wildcard src/*.c)
