@@ -27,10 +27,8 @@ int main(int argc, char *argv[]) {
     Cache *cache = cache_new(cache_size);
 
     // ===========================Setting Cache=================================
-
     int NUMBER_OF_HEADERS;
     int* header;
-
 
     // ===========================Opens Saved Data File=================================
     if(access(DISK_PATH, F_OK) == 0){
@@ -53,7 +51,6 @@ int main(int argc, char *argv[]) {
         header[0] = 1;
         save_fd = create_save_file(DISK_PATH, header);
     }
-
     if (save_fd == -1) {
         handle_error("opening metadata file for writing");
     }
@@ -113,13 +110,11 @@ int main(int argc, char *argv[]) {
             close(pfd[1]);
 
             // ===========================Checking for modification flag===========================
-
             if (cmd.flag == 'a' || cmd.flag == 'd' || cmd.flag == 'c' || cmd.flag == 'l' || cmd.flag == 's' ||cmd.flag == 'p') {
                 Command received;
                 ssize_t r = read(pfd[0], &received, sizeof(Command));
                 if (r == sizeof(Command)) {
                     handle_client_response(&received, cache, save_fd,&current_id, path, &header);
-=
                 } else {
                     handle_error("reading from anonymous pipe\n");
                 }
@@ -132,7 +127,6 @@ int main(int argc, char *argv[]) {
         if (cmd.flag == 'f') {
 
             handle_shutdown(&cmd, cache, header);
-
 
             printf("Server is shutting down\n");
             running = 0;

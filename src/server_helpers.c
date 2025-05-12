@@ -77,6 +77,14 @@ void handle_add(Command *cmd, Cache *cache, int *current_id, int save_fd, char* 
 
     // ===========================Creating and Filling Structure=================================
     DocumentInfo *doc = malloc(sizeof(DocumentInfo));
+
+    if(!doc){
+        handle_error("Creating Doc");
+    }
+    // ===========================Initializing the Struct to Zero=================================
+    memset(doc, 0, sizeof(DocumentInfo));
+
+
     doc->id = index;
     strncpy(doc->title, title, MAX_TITLE);
     strncpy(doc->authors, authors, MAX_AUTHORS);
@@ -86,17 +94,12 @@ void handle_add(Command *cmd, Cache *cache, int *current_id, int save_fd, char* 
     // ===========================Verifying If Path Exists=================================
     char response[128];
     if(access(doc->path,F_OK) == 0){
-        // ===========================Unique identifier to send to client=================================
-        int *id = malloc(sizeof(int));
-        *id = index;
-
         // ===========================Inserting in Hashtable=================================
         header[index] = index;
         handle_write_on_disk(save_fd, doc,cache,'a', doc->id);
 
         // ===========================Building Response Message=================================
-        snprintf(response, sizeof(response), "Document %d indexed\n", *id);
-        free(id);
+        snprintf(response, sizeof(response), "Document %d indexed\n", doc->id);
 
     }
     else{
@@ -140,8 +143,8 @@ void handle_consult(Command *cmd, Cache *cache, int save_fd, int **header) {
     char response[512];
     if (doc) {
         snprintf(response, sizeof(response),
-                 "ID: %d \nTitle: %s\nAuthors: %s\nYear: %s\nPath: %s\n",
-                 doc->id,doc->title, doc->authors, doc->year, doc->path);
+                 "Title: %s\nAuthors: %s\nYear: %s\nPath: %s\n",
+                 doc->title, doc->authors, doc->year, doc->path);
     } else {
         snprintf(response, sizeof(response),
                  "Couldn't find document with ID %d\n", key);
@@ -215,19 +218,51 @@ void handle_lines_with_keyword(Command *cmd, Cache *cache, int save_fd, int head
         if (!doc) {
             snprintf(response, sizeof(response), "Couldn't find document with ID %d\n", key);
         } else {
-            // ===========================Setting up 'grep | wc -l' command=================================
-            char command[512];
-            snprintf(command, sizeof(command),
-                     "grep -c '%s' '%s' 2>/dev/null", keyword, doc->path); // hides error messages
 
-            FILE *fp = popen(command, "r");
-            if (fp == NULL) {
-                snprintf(response, sizeof(response), "Error executing grep command\n");
+            // ===========================Creating Pipe=================================
+            int pfd[2];
+            if (pipe(pfd) == -1) {
+                perror("pipe failed");
+            }
+
+            // ===========================Creating Child Process To Execute grep=================================
+            pid_t pid = fork();
+            if (pid == -1) {
+                perror("fork failed");
+                close(pfd[0]);
+                close(pfd[1]);
+            }
+
+            if (pid == 0) {
+                // ===========================CHILD=================================
+                close(pfd[0]);
+                // ===========================STDOUT Poiting At Writing Pipe=================================
+                dup2(pfd[1], STDOUT_FILENO);
+                close(pfd[1]);
+
+                // ===========================Executing Grep=================================
+                execlp("grep", "grep", "-c", keyword, doc->path, NULL);
+
+                perror("execlp failed");
+                _exit(1);
             } else {
-                int count;
-                fscanf(fp, "%d", &count);
-                snprintf(response, sizeof(response), "%d\n", count);
-                pclose(fp);
+                // ===========================PARENT=================================
+                close(pfd[1]);
+
+                // ===========================Reads Grep Output=================================
+                char buffer[256];
+                ssize_t count = read(pfd[0], buffer, sizeof(buffer) - 1);
+                close(pfd[0]);
+
+                // ===========================Waits For Child Process To Finish=================================
+                int status;
+                waitpid(pid, &status, 0);
+
+                // ===========================Verifies If Grep Output Is Empty=================================
+                if (count > 0) {
+                    // ===========================Adds Document ID To Response=================================
+                    snprintf(response, sizeof(response), "%d\n", atoi(buffer));
+                }
             }
         }
     }
@@ -255,6 +290,8 @@ void handle_search(Command *cmd,Cache *cache, int save_fd, int header[]) {
     char response[3000];
 
     response[0] = '\0';
+    int NUMBER_OF_HEADERS = header[0];
+    int NUMBER_OF_FILES = HEADER_SIZE*NUMBER_OF_HEADERS;
 
     // ===========================Verifies If Has nr_processes=================================
     if (cmd->number_arguments == 3) {
@@ -267,7 +304,7 @@ void handle_search(Command *cmd,Cache *cache, int save_fd, int header[]) {
         int first = 1;
 
         // ===========================Verifies Every Document=================================
-        for (int i = 1; i < HEADER_SIZE; i++) {
+        for (int i = 1; i < NUMBER_OF_FILES; i++) {
             handle_file_exists(cache, save_fd, i, header);
             DocumentInfo *doc = cache_get(cache, i);
 
@@ -297,7 +334,7 @@ void handle_search(Command *cmd,Cache *cache, int save_fd, int header[]) {
                 close(pfd[1]);
 
                 // ===========================Executing Grep=================================
-                execlp("grep", "grep", "-i", keyword, doc->path, NULL);
+                execlp("grep", "grep", keyword, doc->path, NULL);
 
                 perror("execlp failed");
                 _exit(1);
@@ -351,7 +388,7 @@ void handle_search(Command *cmd,Cache *cache, int save_fd, int header[]) {
         int first = 1;
         int active_processes = 0;
 
-        for (int i = 1; i < HEADER_SIZE; i++) {
+        for (int i = 1; i < NUMBER_OF_FILES; i++) {
             handle_file_exists(cache, save_fd, i, header);
             DocumentInfo *doc = cache_get(cache, i);
 
@@ -378,7 +415,7 @@ void handle_search(Command *cmd,Cache *cache, int save_fd, int header[]) {
                 dup2(pfd[1], STDOUT_FILENO);
                 close(pfd[1]);
 
-                execlp("grep", "grep", "-i", keyword, doc->path, NULL);
+                execlp("grep", "grep", keyword, doc->path, NULL);
 
                 perror("execlp failed");
                 _exit(1);

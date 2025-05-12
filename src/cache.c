@@ -83,12 +83,12 @@ void cache_remove_LRU(Cache* cache){
 
 void cache_put(Cache* cache, DocumentInfo* doc){
 
-    int *id = malloc(sizeof(int));
-    *id = doc->id;
-
     if(cache->size == 0){
         return;
     }
+
+    int *id = malloc(sizeof(int));
+    *id = doc->id;
 
     Cache_entry *entry = g_hash_table_lookup(cache->cache, id);
     if (entry != NULL) {
