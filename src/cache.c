@@ -44,11 +44,11 @@ int cache_is_full(Cache *cache){
 
 int cache_remove(Cache *cache, int index){
 
-    if (!g_hash_table_contains(cache->cache, &index)) {
+    Cache_entry *entry = g_hash_table_lookup(cache->cache, &index);
+    if (entry == NULL) {
         return 0;
     }
 
-    Cache_entry *entry = g_hash_table_lookup(cache->cache, &index);
 
     if (cache->tail == entry) {
         cache->tail = entry->prev;
@@ -91,8 +91,15 @@ void cache_put(Cache* cache, DocumentInfo* doc){
     int *id = malloc(sizeof(int));
     *id = doc->id;
 
-    if (g_hash_table_contains(cache->cache, id)) {
-        cache_remove(cache, *id);
+    if(cache->size == 0){
+        return;
+    }
+
+    Cache_entry *entry = g_hash_table_lookup(cache->cache, id);
+    if (entry != NULL) {
+        cache_set_head(entry,cache);
+        free(id);
+        return;
     }
     // ===========================Check If Cache Has Reached Capacity=================================
     else if(cache_is_full(cache)){

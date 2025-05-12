@@ -15,7 +15,7 @@
 
 int main(int argc, char *argv[]) {
     // ===========================Verifying Input=================================
-    if(argc != 3 || (access(argv[1],F_OK) == -1) || (atoi(argv[2]) == 0)){
+    if(argc != 3 || (access(argv[1],F_OK) == -1) || (atoi(argv[2]) < 0)){
         handle_error("Invalid Server Start Input\n");
     }
     char *path = strdup(argv[1]);

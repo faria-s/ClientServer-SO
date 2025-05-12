@@ -97,6 +97,7 @@ void handle_add(Command *cmd, Cache *cache, int *current_id, int save_fd, char* 
     }
     else{
         snprintf(response, sizeof(response), "Document path doesn't exist\n");
+        free(doc);
     }
 
     // ===========================Setting up FIFO name=================================
@@ -108,12 +109,14 @@ void handle_add(Command *cmd, Cache *cache, int *current_id, int save_fd, char* 
     if (fd == -1) {
         perror("Error opening response FIFO server side\n");
         free(args);
+        free(doc);
         return;
     }
 
     // ===========================Sending Response to client=================================
     write(fd, response, strlen(response));
     close(fd);
+    free(doc);
     free(args);
 }
 
@@ -285,7 +288,7 @@ void handle_search(Command *cmd,Cache *cache, int save_fd, int header[]) {
                 close(pfd[1]);
 
                 // ===========================Executing Grep=================================
-                execlp("grep", "grep", keyword, doc->path, NULL);
+                execlp("grep", "grep", "-i", keyword, doc->path, NULL);
 
                 perror("execlp failed");
                 _exit(1);
@@ -335,7 +338,7 @@ void handle_search(Command *cmd,Cache *cache, int save_fd, int header[]) {
         strcat(response, "[");
 
         int first = 1;
-        int active_processes = 0; // Track the number of active child processes
+        int active_processes = 0;
 
         for (int i = 1; i < HEADER_SIZE; i++) {
             handle_file_exists(cache, save_fd, i, header);
@@ -364,7 +367,7 @@ void handle_search(Command *cmd,Cache *cache, int save_fd, int header[]) {
                 dup2(pfd[1], STDOUT_FILENO);
                 close(pfd[1]);
 
-                execlp("grep", "grep", keyword, doc->path, NULL);
+                execlp("grep", "grep", "-i", keyword, doc->path, NULL);
 
                 perror("execlp failed");
                 _exit(1);
@@ -373,7 +376,6 @@ void handle_search(Command *cmd,Cache *cache, int save_fd, int header[]) {
                 close(pfd[1]);
                 active_processes++;
 
-                // Wait for child processes if the limit is reached
                 if (active_processes >= NUMBER_PROCESSES) {
                     int status;
                     wait(&status);
@@ -384,7 +386,6 @@ void handle_search(Command *cmd,Cache *cache, int save_fd, int header[]) {
                 ssize_t count = read(pfd[0], buffer, sizeof(buffer) - 1);
                 close(pfd[0]);
 
-                // Check if grep found matches
                 if (count > 0) {
                     buffer[count] = '\0';
 
@@ -432,9 +433,8 @@ void handle_search(Command *cmd,Cache *cache, int save_fd, int header[]) {
 }
 
 void handle_shutdown(Command *cmd, Cache *cache, int *header) {
-    g_hash_table_destroy(cache->cache);
+    cache_free(cache);
     free(header);
-    free(cache);
 
     char response[128];
     snprintf(response, sizeof(response), "Server is shutting down\n");
@@ -643,6 +643,7 @@ int handle_file_exists(Cache *cache, int fd, int index, int header[]) {
                 perror("Error reading document metadata");
                 free(doc);
             }
+            free(doc);
         }
     }
 
