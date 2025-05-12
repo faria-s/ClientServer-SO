@@ -126,7 +126,7 @@ int main(int argc, char *argv[]) {
         // ===========================Checking for server ending flag===========================
         if (cmd.flag == 'f') {
 
-            handle_shutdown(&cmd, cache);
+            handle_shutdown(&cmd, cache, header);
 
             printf("Server is shutting down\n");
             running = 0;

@@ -22,7 +22,6 @@ void handle_error(char *message) {
     exit(EXIT_FAILURE);
 }
 
-
 void build_command(Command *cmd, int argc, char *argv[]) {
     // ===========================Checking conditions=================================
     if (argc < 2) {
@@ -243,7 +242,7 @@ void handle_lines_with_keyword(Command *cmd, Cache *cache, int save_fd, int head
 
 void handle_search(Command *cmd,Cache *cache, int save_fd, int header[]) {
     char *args = strdup(cmd->arguments);
-    char response[2048];
+    char response[3000];
     response[0] = '\0';
 
     // ===========================Verifies If Has nr_processes=================================
@@ -325,12 +324,88 @@ void handle_search(Command *cmd,Cache *cache, int save_fd, int header[]) {
         char *nr_processes= strtok(NULL, "|");
 
         // ===========================Getting key from the command=================================
-        int max_processes = atoi(nr_processes);
-        if(!max_processes){
+        int NUMBER_PROCESSES= atoi(nr_processes);
+        if(NUMBER_PROCESSES <= 0){
             perror("Invalid nr_processes input\n");
             free(args);
             return;
         }
+
+
+        strcat(response, "[");
+
+        int first = 1;
+        int active_processes = 0; // Track the number of active child processes
+
+        for (int i = 1; i < HEADER_SIZE; i++) {
+            handle_file_exists(cache, save_fd, i, header);
+            DocumentInfo *doc = cache_get(cache, i);
+
+            if (!doc) continue;
+
+            int pfd[2];
+            if (pipe(pfd) == -1) {
+                perror("pipe failed");
+                continue;
+            }
+
+            pid_t pid = fork();
+            if (pid == -1) {
+                perror("fork failed");
+                close(pfd[0]);
+                close(pfd[1]);
+                continue;
+            }
+
+            if (pid == 0) {
+                // ===========================CHILD PROCESS===========================
+                close(pfd[0]);
+
+                dup2(pfd[1], STDOUT_FILENO);
+                close(pfd[1]);
+
+                execlp("grep", "grep", keyword, doc->path, NULL);
+
+                perror("execlp failed");
+                _exit(1);
+            } else {
+                // ===========================PARENT PROCESS===========================
+                close(pfd[1]);
+                active_processes++;
+
+                // Wait for child processes if the limit is reached
+                if (active_processes >= NUMBER_PROCESSES) {
+                    int status;
+                    wait(&status);
+                    active_processes--;
+                }
+
+                char buffer[256];
+                ssize_t count = read(pfd[0], buffer, sizeof(buffer) - 1);
+                close(pfd[0]);
+
+                // Check if grep found matches
+                if (count > 0) {
+                    buffer[count] = '\0';
+
+                    if (!first) {
+                        strncat(response, ",", sizeof(response) - strlen(response) - 1);
+                    }
+                    char id_str[16];
+                    snprintf(id_str, sizeof(id_str), "%d", i);
+                    strncat(response, id_str, sizeof(response) - strlen(response) - 1);
+                    first = 0;
+                }
+            }
+        }
+
+        while(active_processes > 0){
+            int status;
+            wait(&status);
+            active_processes--;
+        }
+
+        strcat(response, "]\n");
     }
     else{
         perror("Incorrect number of arguments \n");
@@ -356,7 +431,11 @@ void handle_search(Command *cmd,Cache *cache, int save_fd, int header[]) {
     free(args);
 }
 
-void handle_shutdown(Command *cmd, Cache *cache) {
+void handle_shutdown(Command *cmd, Cache *cache, int *header) {
+    g_hash_table_destroy(cache->cache);
+    free(header);
+    free(cache);
+
     char response[128];
     snprintf(response, sizeof(response), "Server is shutting down\n");
 
@@ -372,7 +451,6 @@ void handle_shutdown(Command *cmd, Cache *cache) {
     }
     // ===========================Sending Response to client=================================
     write(fd, response, strlen(response));
-    g_hash_table_destroy(cache->cache);
     close(fd);
 }
 
@@ -388,15 +466,15 @@ void handle_cache(Command *cmd, Cache *cache){
     }
 
     // ===========================Building Response=================================
-    char response[1024]; // Increased buffer size for larger responses
-    response[0] = '\0';  // Initialize the response as an empty string
+    char response[1024];
+    response[0] = '\0';
 
     snprintf(response, sizeof(response), "Cache Size: %d\n", cache->size);
 
     while (current) {
-        char entry[128]; // Temporary buffer for each cache entry
+        char entry[128];
         snprintf(entry, sizeof(entry), "ID: %d\n", current->id);
-        strncat(response, entry, sizeof(response) - strlen(response) - 1); // Append to response
+        strncat(response, entry, sizeof(response) - strlen(response) - 1);
         current = current->next;
     }
 
@@ -514,6 +592,7 @@ int handle_write_on_disk(int fd, DocumentInfo *doc, Cache *cache, char cmd, int 
             handle_error("Failed to write zero to header for deletion");
         }
 
+        cache_remove(cache, id);
         writed = 1;
     }
 

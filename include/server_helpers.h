@@ -33,7 +33,7 @@ void handle_consult(Command *cmd, Cache *cache, int save_fd, int **header);
 void handle_delete(Command *cmd, Cache *cache, int saved_fd,int header[]);
 void handle_lines_with_keyword(Command *cmd, Cache *cache,int fd, int header[]);
 void handle_client_response(Command *cmd, Cache* cache, int save_fd, int* current_id, char* path, int **header_ptr);
-void handle_shutdown(Command *cmd, Cache *cache);
+void handle_shutdown(Command *cmd, Cache *cache, int *header);
 void handle_search(Command *cmd,Cache *cache, int save_fd, int header[]);
 int handle_write_on_disk(int fd, DocumentInfo *doc, Cache *cache, char cmd, int id);
 int handle_file_exists(Cache *cache, int fd, int index, int header[]);
