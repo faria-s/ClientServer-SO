@@ -50,6 +50,7 @@ void build_command(Command *cmd, int argc, char *argv[]) {
 
 void handle_add(Command *cmd, Cache *cache, int *current_id, int save_fd, char* folder_path, int **header_ptr) {
     int* header = *header_ptr;
+
     // ===========================Setting up variables=================================
     char *args = strdup(cmd->arguments);
     char *title = strtok(args, "|");
@@ -69,8 +70,10 @@ void handle_add(Command *cmd, Cache *cache, int *current_id, int save_fd, char* 
     snprintf(path, sizeof(path), "%s%s", folder_path, file_path);
 
     // ===========================Unique identifier to send to client=================================
+
     int index = find_empty_index(header_ptr, save_fd);
     header = *header_ptr;
+
 
     // ===========================Creating and Filling Structure=================================
     DocumentInfo *doc = malloc(sizeof(DocumentInfo));
@@ -94,6 +97,7 @@ void handle_add(Command *cmd, Cache *cache, int *current_id, int save_fd, char* 
         // ===========================Building Response Message=================================
         snprintf(response, sizeof(response), "Document %d indexed\n", *id);
         free(id);
+
     }
     else{
         snprintf(response, sizeof(response), "Document path doesn't exist\n");
@@ -119,11 +123,14 @@ void handle_add(Command *cmd, Cache *cache, int *current_id, int save_fd, char* 
 
 
 void handle_consult(Command *cmd, Cache *cache, int save_fd, int **header) {
+
     // ===========================Getting key from the command=================================
     int key = atoi(cmd->arguments);
 
     // ===========================Searching the Hashtable=================================
+
     handle_file_exists(cache, save_fd, key, *header);
+
     DocumentInfo *doc = cache_get(cache, key);
 
     // ===========================Setting up response to the client=================================
@@ -243,6 +250,7 @@ void handle_lines_with_keyword(Command *cmd, Cache *cache, int save_fd, int head
 void handle_search(Command *cmd,Cache *cache, int save_fd, int header[]) {
     char *args = strdup(cmd->arguments);
     char response[3000];
+
     response[0] = '\0';
 
     // ===========================Verifies If Has nr_processes=================================
@@ -252,6 +260,7 @@ void handle_search(Command *cmd,Cache *cache, int save_fd, int header[]) {
         strcat(response, "[");
 
         // ===========================Gets Number of Indexed Documents=================================
+
         int first = 1;
 
         // ===========================Verifies Every Document=================================
@@ -324,8 +333,10 @@ void handle_search(Command *cmd,Cache *cache, int save_fd, int header[]) {
         char *nr_processes= strtok(NULL, "|");
 
         // ===========================Getting key from the command=================================
+
         int NUMBER_PROCESSES= atoi(nr_processes);
         if(NUMBER_PROCESSES <= 0){
+
             perror("Invalid nr_processes input\n");
             free(args);
             return;
@@ -406,6 +417,7 @@ void handle_search(Command *cmd,Cache *cache, int save_fd, int header[]) {
         }
 
         strcat(response, "]\n");
+
     }
     else{
         perror("Incorrect number of arguments \n");
@@ -431,6 +443,7 @@ void handle_search(Command *cmd,Cache *cache, int save_fd, int header[]) {
     free(args);
 }
 
+
 void handle_shutdown(Command *cmd, Cache *cache, int *header) {
     g_hash_table_destroy(cache->cache);
     free(header);
@@ -451,6 +464,7 @@ void handle_shutdown(Command *cmd, Cache *cache, int *header) {
     }
     // ===========================Sending Response to client=================================
     write(fd, response, strlen(response));
+
     close(fd);
 }
 
@@ -517,6 +531,7 @@ void handle_client_response(Command *cmd, Cache* cache, int save_fd, int* curren
         break;
     case 'p':
         handle_cache(cmd,cache);
+
         break;
     default:
         break;
@@ -527,6 +542,7 @@ int handle_write_on_disk(int fd, DocumentInfo *doc, Cache *cache, char cmd, int 
     int writed = 0;
 
     if (fd == -1) {
+
         handle_error("Invalid file descriptor for meta_info.txt");
     }
 
@@ -582,10 +598,12 @@ int handle_write_on_disk(int fd, DocumentInfo *doc, Cache *cache, char cmd, int 
 
         if (write(fd, doc, sizeof(DocumentInfo)) != sizeof(DocumentInfo)) {
             handle_error("Failed to write DocumentInfo to disk");
+
         }
 
         cache_put(cache, doc);
         writed = 1;
+
     } else if (cmd == 'd') {
         int zero = 0;
         if (write(fd, &zero, sizeof(int)) != sizeof(int)) {
@@ -593,6 +611,7 @@ int handle_write_on_disk(int fd, DocumentInfo *doc, Cache *cache, char cmd, int 
         }
 
         cache_remove(cache, id);
+
         writed = 1;
     }
 
@@ -636,11 +655,14 @@ int handle_file_exists(Cache *cache, int fd, int index, int header[]) {
                 return NOT_FOUND;
             }
 
+
             if (read(fd, doc, sizeof(DocumentInfo)) == sizeof(DocumentInfo)) {
                 where_exists = FOUND_ON_DISK;
                 cache_put(cache, doc);
             } else {
+
                 perror("Error reading document metadata");
+
                 free(doc);
             }
         }

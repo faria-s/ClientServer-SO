@@ -41,6 +41,7 @@ int create_save_file(char* path, int header[]){
  return fd;
 }
 
+
 void load_header(int fd, int header[], int NUMBER_OF_HEADERS) {
 
 
@@ -48,6 +49,7 @@ void load_header(int fd, int header[], int NUMBER_OF_HEADERS) {
         perror("Error opening file");
         return ;
     }
+
 
     for (int header_index = 0; header_index < NUMBER_OF_HEADERS; header_index++) {
             off_t header_position = header_index * (HEADER_SIZE * sizeof(int) + HEADER_SIZE * sizeof(DocumentInfo));
@@ -115,4 +117,5 @@ void create_new_header(int **header_ptr, int save_fd) {
         perror("Write new header failed");
         return;
     }
+
 }

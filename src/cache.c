@@ -33,7 +33,9 @@ Cache *cache_new(int N){
     new_cache->size = N;
     new_cache->head = NULL;
     new_cache->tail = NULL;
+
     new_cache->cache = g_hash_table_new_full(g_int_hash, g_int_equal, free, (GDestroyNotify)cache_entry_free);
+
 
     return new_cache;
 }
@@ -77,14 +79,7 @@ void cache_remove_LRU(Cache* cache){
     cache_remove(cache, lru_id);
 }
 
-/*void print_cache_entry(Cache_entry *entry){
-    if(entry){
-        printf("ID: %d\nNext: %d\nPrev: %d\n", entry->id, entry->next,  entry->prev);
-    }
-    else{
-        printf("Empty Entry");
-    }
-}*/
+
 
 void cache_put(Cache* cache, DocumentInfo* doc){
 
@@ -96,6 +91,7 @@ void cache_put(Cache* cache, DocumentInfo* doc){
     }
     // ===========================Check If Cache Has Reached Capacity=================================
     else if(cache_is_full(cache)){
+
         // ===========================Remove LRU=================================
         cache_remove_LRU(cache);
     }
@@ -104,6 +100,7 @@ void cache_put(Cache* cache, DocumentInfo* doc){
     Cache_entry *new_entry = cache_entry_new(doc, cache->head, NULL, doc->id);
 
     // ===========================Sets Tail If Cache Empty=================================
+
     if (cache->head) {
         cache->head->prev = new_entry;
     }
@@ -116,6 +113,7 @@ void cache_put(Cache* cache, DocumentInfo* doc){
     }
 
     // ===========================Add New Entry=================================
+
     g_hash_table_insert(cache->cache, id, new_entry);
 }
 
@@ -132,6 +130,7 @@ void cache_set_head(Cache_entry *entry, Cache *cache){
     entry->next = cache->head;
     entry->prev = NULL;
 
+
     if (cache->head){
         cache->head->prev = entry;
     }
@@ -141,6 +140,7 @@ void cache_set_head(Cache_entry *entry, Cache *cache){
     if (!cache->tail){
         cache->tail = entry;
     }
+
 }
 
 DocumentInfo *cache_get(Cache* cache, int id){
@@ -153,6 +153,7 @@ DocumentInfo *cache_get(Cache* cache, int id){
 }
 
 void cache_free(Cache *cache) {
+
     if (!cache) {
         return;
     }
@@ -168,6 +169,7 @@ void cache_entry_free(Cache_entry *entry) {
         }
         free(entry);
     }
+
 }
 
 /*
