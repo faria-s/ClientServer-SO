@@ -33,7 +33,9 @@ Cache *cache_new(int N){
     new_cache->size = N;
     new_cache->head = NULL;
     new_cache->tail = NULL;
-    new_cache->cache = g_hash_table_new_full(g_int_hash, g_int_equal, free, free);
+
+    new_cache->cache = g_hash_table_new_full(g_int_hash, g_int_equal, free, (GDestroyNotify)cache_entry_free);
+
 
     return new_cache;
 }
@@ -43,78 +45,53 @@ int cache_is_full(Cache *cache){
 }
 
 int cache_remove(Cache *cache, int index){
-    int removed = 0;
 
-   if(g_hash_table_contains(cache->cache, &index)){
-       Cache_entry *entry = g_hash_table_lookup(cache->cache, &index);
+    if (!g_hash_table_contains(cache->cache, &index)) {
+        return 0;
+    }
 
-       if(cache->tail == entry){
-           cache->tail = entry->prev;
-       }
+    Cache_entry *entry = g_hash_table_lookup(cache->cache, &index);
 
-       if(cache->head == entry){
-           cache->head = entry->next;
-        }
+    if (cache->tail == entry) {
+        cache->tail = entry->prev;
+    }
+    if (cache->head == entry) {
+        cache->head = entry->next;
+    }
+    if (entry->prev) {
+        entry->prev->next = entry->next;
+    }
+    if (entry->next) {
+        entry->next->prev = entry->prev;
+    }
 
-       if(entry->prev){
-           entry->prev->next = entry->next;
-       }
+    g_hash_table_remove(cache->cache, &index);
 
-       if(entry->next){
-           entry->next->prev = entry->prev;
-       }
-
-        g_hash_table_remove(cache->cache, &index);
-        removed = 1;
-   }
-
-   return removed;
+    return 1;
 }
 
 void cache_remove_LRU(Cache* cache){
-    if (!cache->tail) return;
-
-    int i = cache->tail->id;
-    Cache_entry *prev_LRU = cache->tail->prev;
-
-    if(prev_LRU){
-        prev_LRU->next = NULL;
-    }
-
-    //GHashTableIter iter;
-    //gpointer key, value;
-
-    //g_hash_table_iter_init(&iter, cache->cache);
-    //while (g_hash_table_iter_next(&iter, &key, &value)) {
-        //int *int_key = (int *)key;
-        //printf("Key: %d\n", *int_key);
-        // }
-
-    g_hash_table_remove(cache->cache, &i);
-    //free(cache->tail->doc);
-    //free(cache->tail)
-
-    cache->tail = prev_LRU;
-
     if (!cache->tail) {
-            cache->head = NULL;
+        return; // Cache is empty
     }
+
+    int lru_id = cache->tail->id;
+    cache_remove(cache, lru_id);
 }
 
-void print_cache_entry(Cache_entry *entry){
-    if(entry){
-        printf("ID: %d\nNext: %d\nPrev: %d\n", entry->id, entry->next,  entry->prev);
-    }
-    else{
-        printf("Empty Entry");
-    }
-}
+
 
 void cache_put(Cache* cache, DocumentInfo* doc){
 
+    int *id = malloc(sizeof(int));
+    *id = doc->id;
+
+    if (g_hash_table_contains(cache->cache, id)) {
+        cache_remove(cache, *id);
+    }
     // ===========================Check If Cache Has Reached Capacity=================================
-    if(cache_is_full(cache)){
-        //printf("Cheio\n");
+    else if(cache_is_full(cache)){
+
         // ===========================Remove LRU=================================
         cache_remove_LRU(cache);
     }
@@ -123,19 +100,20 @@ void cache_put(Cache* cache, DocumentInfo* doc){
     Cache_entry *new_entry = cache_entry_new(doc, cache->head, NULL, doc->id);
 
     // ===========================Sets Tail If Cache Empty=================================
-    if(g_hash_table_size(cache->cache) == 0){
-        cache->tail = new_entry;
-    } else {
-       cache->head->prev = new_entry;
-       new_entry->next = cache->head;
-   }
+
+    if (cache->head) {
+        cache->head->prev = new_entry;
+    }
 
     // ===========================Update New Entry Position=================================
     cache->head = new_entry;
 
+    if (!cache->tail) {
+        cache->tail = new_entry;
+    }
+
     // ===========================Add New Entry=================================
-    int *id = malloc(sizeof(int));
-    *id = doc->id;
+
     g_hash_table_insert(cache->cache, id, new_entry);
 }
 
@@ -152,13 +130,17 @@ void cache_set_head(Cache_entry *entry, Cache *cache){
     entry->next = cache->head;
     entry->prev = NULL;
 
-    if (cache->head)
+
+    if (cache->head){
         cache->head->prev = entry;
+    }
 
     cache->head = entry;
 
-    if (!cache->tail)
+    if (!cache->tail){
         cache->tail = entry;
+    }
+
 }
 
 DocumentInfo *cache_get(Cache* cache, int id){
@@ -171,22 +153,23 @@ DocumentInfo *cache_get(Cache* cache, int id){
 }
 
 void cache_free(Cache *cache) {
-    if (!cache) return;
 
-    Cache_entry *current = cache->head;
-    while (current) {
-        Cache_entry* next = current->next;
-
-        if (current->doc)
-            free(current->doc);
-        free(current);
-
-        current = next;
+    if (!cache) {
+        return;
     }
 
-    g_hash_table_destroy(cache->cache);
-
+    g_hash_table_destroy(cache->cache); // Automatically frees all entries
     free(cache);
+}
+
+void cache_entry_free(Cache_entry *entry) {
+    if (entry) {
+        if(entry->doc){
+            free(entry->doc);
+        }
+        free(entry);
+    }
+
 }
 
 /*

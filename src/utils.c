@@ -41,35 +41,81 @@ int create_save_file(char* path, int header[]){
  return fd;
 }
 
-void load_header(int fd, int header[]) {
+
+void load_header(int fd, int header[], int NUMBER_OF_HEADERS) {
+
 
     if (fd == -1) {
         perror("Error opening file");
         return ;
     }
 
-    for (int i = 0; i < 128; i++) {
-        if (read(fd, &header[i], sizeof(int)) != sizeof(int)) {
-            perror("Error reading from file");
-            return ;
+
+    for (int header_index = 0; header_index < NUMBER_OF_HEADERS; header_index++) {
+            off_t header_position = header_index * (HEADER_SIZE * sizeof(int) + HEADER_SIZE * sizeof(DocumentInfo));
+
+            if (lseek(fd, header_position, SEEK_SET) == -1) {
+                perror("Error seeking to header position while loading header");
+                return;
+            }
+
+            for (int i = 0; i < HEADER_SIZE; i++) {
+                int global_index = header_index * HEADER_SIZE + i;
+                if (read(fd, &header[global_index], sizeof(int)) != sizeof(int)) {
+                    perror("Error reading header entry from file");
+                    return;
+                }
+            }
         }
-    }
 }
 
-int find_empty_index(int header[]){
-   int index = 0;
-   int i;
+int find_empty_index(int **header_ptr, int save_fd) {
+    int *header = *header_ptr;
+    int index = 0;
+    int NUMBER_OF_HEADERS = header[0];
+    int i;
 
-   for(i = 1; i < HEADER_SIZE; i++){
-       if(header[i] == 0){
-           index = i;
-           break;
-       }
-   }
+    for (i = 1; i < HEADER_SIZE * NUMBER_OF_HEADERS; i++) {
+        if (header[i] == 0) {
+            index = i;
+            break;
+        }
+    }
 
-  if(i == HEADER_SIZE){
-      perror("header full");
-  }
+    if (i == HEADER_SIZE * NUMBER_OF_HEADERS) {
+        create_new_header(header_ptr, save_fd);
+        header = *header_ptr; // Update local pointer after realloc
+        NUMBER_OF_HEADERS = header[0];
+        index = HEADER_SIZE * (NUMBER_OF_HEADERS - 1);
+    }
 
-  return index;
+    if (index == 0) {
+        perror("header full");
+    }
+
+    return index;
+}
+
+void create_new_header(int **header_ptr, int save_fd) {
+    int *header = *header_ptr;
+    header[0]++;
+    int NUMBER_OF_HEADERS = header[0];
+
+    int *temp = realloc(header, HEADER_SIZE * NUMBER_OF_HEADERS * sizeof(int));
+    if (!temp) {
+        perror("Header Realloc");
+        return;
+    }
+    *header_ptr = temp;
+
+    int old_size = (NUMBER_OF_HEADERS - 1) * HEADER_SIZE;
+    memset(*header_ptr + old_size, 0, HEADER_SIZE * sizeof(int));
+
+    int *new_header = *header_ptr + old_size;
+    lseek(save_fd, 0, SEEK_END);
+    if (write(save_fd, new_header, HEADER_SIZE * sizeof(int)) != HEADER_SIZE * sizeof(int)) {
+        perror("Write new header failed");
+        return;
+    }
+
 }
