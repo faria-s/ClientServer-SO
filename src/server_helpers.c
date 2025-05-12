@@ -382,81 +382,140 @@ void handle_search(Command *cmd,Cache *cache, int save_fd, int header[]) {
             return;
         }
 
+        int files_per_process = NUMBER_OF_FILES / NUMBER_PROCESSES;
+        int remaining_files = NUMBER_OF_FILES % NUMBER_PROCESSES;
 
         strcat(response, "[");
-
         int first = 1;
-        int active_processes = 0;
 
-        for (int i = 1; i < NUMBER_OF_FILES; i++) {
-            handle_file_exists(cache, save_fd, i, header);
-            DocumentInfo *doc = cache_get(cache, i);
-
-            if (!doc) continue;
-
-            int pfd[2];
-            if (pipe(pfd) == -1) {
+        // =========================== Creates Pipe For Each Process ============================
+        int pipes[NUMBER_PROCESSES][2];
+        for (int i = 0; i < NUMBER_PROCESSES; i++) {
+            if (pipe(pipes[i]) == -1) {
                 perror("pipe failed");
-                continue;
+                free(args);
+                return;
             }
+        }
 
+        // =========================== Creates Fork For Each Process ============================
+        for (int i = 0; i < NUMBER_PROCESSES; i++) {
             pid_t pid = fork();
             if (pid == -1) {
                 perror("fork failed");
-                close(pfd[0]);
-                close(pfd[1]);
-                continue;
+                free(args);
+                return;
             }
 
             if (pid == 0) {
-                // ===========================CHILD PROCESS===========================
-                close(pfd[0]);
+                // =========================== CHILD PROCESS ============================
+                close(pipes[i][0]);
 
-                dup2(pfd[1], STDOUT_FILENO);
-                close(pfd[1]);
-
-                execlp("grep", "grep", keyword, doc->path, NULL);
-
-                perror("execlp failed");
-                _exit(1);
-            } else {
-                // ===========================PARENT PROCESS===========================
-                close(pfd[1]);
-                active_processes++;
-
-                if (active_processes >= NUMBER_PROCESSES) {
-                    int status;
-                    wait(&status);
-                    active_processes--;
+                int start = i * files_per_process;
+                int end = start + files_per_process;
+                if (i == NUMBER_PROCESSES- 1) {
+                    end += remaining_files;
                 }
 
-                char buffer[256];
-                ssize_t count = read(pfd[0], buffer, sizeof(buffer) - 1);
-                close(pfd[0]);
+                char child_response[3000];
+                child_response[0] = '\0';
+                int child_first = 1;
 
-                if (count > 0) {
-                    buffer[count] = '\0';
+                if(start == 0) start = 1;
+                for (int j = start; j < end; j++) {
+                    handle_file_exists(cache, save_fd, j, header);
+                    DocumentInfo *doc = cache_get(cache, j);
 
-                    if (!first) {
-                        strncat(response, ",", sizeof(response) - strlen(response) - 1);
+                    if (!doc) continue;
+
+                    int pfd[2];
+                    if (pipe(pfd) == -1) {
+                        perror("pipe failed");
+                        continue;
                     }
-                    char id_str[16];
-                    snprintf(id_str, sizeof(id_str), "%d", i);
-                    strncat(response, id_str, sizeof(response) - strlen(response) - 1);
-                    first = 0;
+
+                    pid_t grep_pid = fork();
+                    if (grep_pid == -1) {
+                        perror("fork failed");
+                        close(pfd[0]);
+                        close(pfd[1]);
+                        continue;
+                    }
+
+                    if (grep_pid == 0) {
+                        // =========================== GREP CHILD ============================
+                        close(pfd[0]);
+                        dup2(pfd[1], STDOUT_FILENO);
+                        close(pfd[1]);
+
+                        execlp("grep", "grep", keyword, doc->path, NULL);
+
+                        perror("execlp failed");
+                        _exit(1);
+                    } else {
+                        // =========================== GREP PARENT ============================
+                        close(pfd[1]);
+
+                        // =========================== Reads Child Response ============================
+                        char buffer[256];
+                        ssize_t count = read(pfd[0], buffer, sizeof(buffer) - 1);
+                        close(pfd[0]);
+
+                        // =========================== Waits for Especif Child Process Death ============================
+                        int status;
+                        waitpid(grep_pid, &status, 0);
+
+                        // =========================== Waits for Especif Child Process Death ============================
+                        if (count > 0) {
+                            buffer[count] = '\0';
+
+                            if (!child_first) {
+                                strncat(child_response, ",", sizeof(child_response) - strlen(child_response) - 1);
+                            }
+                            char id_str[16];
+                            snprintf(id_str, sizeof(id_str), "%d", j);
+                            strncat(child_response, id_str, sizeof(child_response) - strlen(child_response) - 1);
+                            child_first = 0;
+                        }
+                    }
                 }
+
+                write(pipes[i][1], child_response, strlen(child_response));
+                close(pipes[i][1]);
+                _exit(0);
             }
         }
 
-        while(active_processes > 0){
-            int status;
-            wait(&status);
-            active_processes--;
+        // =========================== PARENT PROCESS ============================
+
+        // =========================== Close Writing Pipes for Each Process ============================
+        for (int i = 0; i < NUMBER_PROCESSES; i++) {
+            close(pipes[i][1]);
         }
 
-        strcat(response, "]\n");
+        // =========================== Read Pipes of Each Process ============================
+        for (int i = 0; i < NUMBER_PROCESSES; i++) {
 
-    }
+            char buffer[3000];
+            ssize_t count = read(pipes[i][0], buffer, sizeof(buffer) - 1);
+            close(pipes[i][0]);
+
+            // =========================== Adds Found Indexes Client Response ============================
+            if (count > 0) {
+                buffer[count] = '\0';
+
+                if (!first) {
+                    strncat(response, ",", sizeof(response) - strlen(response) - 1);
+                }
+                strncat(response, buffer, sizeof(response) - strlen(response) - 1);
+                first = 0;
+            }
+
+            // =========================== Waits All Childreen Deaths ============================
+            wait(NULL);
+        }
+
+        strcat(response, "]\n");    }
     else{
         perror("Incorrect number of arguments \n");
         free(args);
