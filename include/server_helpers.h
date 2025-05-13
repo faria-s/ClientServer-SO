@@ -24,27 +24,9 @@
 
 /**
  * @def DISK_PATH
- * Path to the metadata information file.
+ * Path to the saved metadata information file.
  */
 #define DISK_PATH "meta_info.txt"
-
-/**
- * @def NOT_FOUND
- * Indicates that a document was not found.
- */
-#define NOT_FOUND 0
-
-/**
- * @def FOUND_IN_CACHE
- * Indicates that a document was found in the cache.
- */
-#define FOUND_IN_CACHE 1
-
-/**
- * @def FOUND_ON_DISK
- * Indicates that a document was found on disk.
- */
-#define FOUND_ON_DISK 2
 
 /**
  * @struct Command
@@ -165,8 +147,8 @@ int handle_write_on_disk(int fd, DocumentInfo *doc, Cache *cache, char cmd, int 
  * @param fd File descriptor for metadata storage.
  * @param index Document index to search for.
  * @param header Header array for index tracking.
- * @return int One of NOT_FOUND, FOUND_IN_CACHE, or FOUND_ON_DISK.
+ * @return doc if found or NULL if not found.
  */
-int handle_file_exists(Cache *cache, int fd, int index, int header[]);
+DocumentInfo *handle_file_exists(Cache *cache, int fd, int index, int header[]);
 
 #endif

@@ -46,6 +46,8 @@ int cache_is_full(Cache *cache){
 
 int cache_remove(Cache *cache, int index){
 
+    if(cache->size == 0) return 0;
+
     Cache_entry *entry = g_hash_table_lookup(cache->cache, &index);
     if (entry == NULL) {
         return 0;
@@ -151,6 +153,8 @@ void cache_set_head(Cache_entry *entry, Cache *cache){
 }
 
 DocumentInfo *cache_get(Cache* cache, int id){
+    if(cache->size == 0) return NULL;
+
     Cache_entry *entry = g_hash_table_lookup(cache->cache, &id);
     if (entry) {
         cache_set_head(entry, cache);
@@ -176,7 +180,6 @@ void cache_entry_free(Cache_entry *entry) {
         }
         free(entry);
     }
-
 }
 
 /*

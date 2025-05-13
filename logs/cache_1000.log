@@ -1,0 +1,53 @@
+Efficiency Analysis Results
+----------------------------------------
+Iterations: 10
+Files: 500
+Total Consulting Time: 13.924434049 seconds
+----------------------------------------
+Total Time for '/bin/dclient -s praia': 5.806404017 seconds
+Total Time for '/bin/dclient -s praia 10': .726146100 seconds
+Total Time for '/bin/dclient -s praia 100': .729212302 seconds
+
+
+Efficiency Analysis Results
+----------------------------------------
+Iterations: 50
+Files: 100
+Total Consulting Time: 14.052822171 seconds
+----------------------------------------
+Total Time for '/bin/dclient -s praia': 6.649372535 seconds
+Total Time for '/bin/dclient -s praia 10': .852398173 seconds
+Total Time for '/bin/dclient -s praia 100': .942220233 seconds
+
+
+Efficiency Analysis Results
+----------------------------------------
+Iterations: 100
+Files: 70
+Total Consulting Time: 18.292052337 seconds
+----------------------------------------
+Total Time for '/bin/dclient -s praia': 5.736051642 seconds
+Total Time for '/bin/dclient -s praia 10': .676812208 seconds
+Total Time for '/bin/dclient -s praia 100': .669074996 seconds
+
+
+Efficiency Analysis Results
+----------------------------------------
+Iterations: 50
+Files: 500
+Total Consulting Time: 71.980505189 seconds
+----------------------------------------
+Total Time for '/bin/dclient -s praia': 5.728185005 seconds
+Total Time for '/bin/dclient -s praia 10': .888588541 seconds
+Total Time for '/bin/dclient -s praia 100': .859988966 seconds
+
+
+Efficiency Analysis Results
+----------------------------------------
+Iterations: 100
+Files: 500
+Total Consulting Time: 141.617480469 seconds
+----------------------------------------
+Total Time for '/bin/dclient -s praia': 6.318750748 seconds
+Total Time for '/bin/dclient -s praia 10': .904934911 seconds
+Total Time for '/bin/dclient -s praia 100': .802823440 seconds
