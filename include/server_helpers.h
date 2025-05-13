@@ -55,6 +55,7 @@ void handle_error(char *message);
  */
 void build_command(Command *cmd, int argc, char *argv[]);
 
+
 /**
  * @brief Handles the addition of a new document to the cache and storage.
  *
@@ -138,6 +139,7 @@ void handle_search(Command *cmd, Cache *cache, int save_fd, int header[]);
  * @param id Document ID for storage or deletion.
  * @return int 1 if the operation was successful, 0 otherwise.
  */
+
 int handle_write_on_disk(int fd, DocumentInfo *doc, Cache *cache, char cmd, int id);
 
 /**

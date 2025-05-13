@@ -112,4 +112,6 @@ void cache_free(Cache *cache);
 */
 void cache_entry_free(Cache_entry *entry);
 
+void cache_entry_free(Cache_entry *entry);
+
 #endif

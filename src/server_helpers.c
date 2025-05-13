@@ -74,6 +74,7 @@ void handle_add(Command *cmd, Cache *cache, int *current_id, int save_fd, char* 
     int index = find_empty_index(header_ptr, save_fd);
     header = *header_ptr;
 
+
     // ===========================Creating and Filling Structure=================================
     DocumentInfo *doc = malloc(sizeof(DocumentInfo));
 
@@ -98,7 +99,9 @@ void handle_add(Command *cmd, Cache *cache, int *current_id, int save_fd, char* 
         handle_write_on_disk(save_fd, doc,cache,'a', doc->id);
 
         // ===========================Building Response Message=================================
+
         snprintf(response, sizeof(response), "Document %d indexed\n", doc->id);
+
 
     }
     else{
@@ -131,6 +134,7 @@ void handle_consult(Command *cmd, Cache *cache, int save_fd, int **header) {
 
     // ===========================Getting key from the command=================================
     int key = atoi(cmd->arguments);
+
     DocumentInfo *doc = NULL;
     DocumentInfo *no_cache = NULL;
     if(key > 0){
@@ -138,6 +142,7 @@ void handle_consult(Command *cmd, Cache *cache, int save_fd, int **header) {
         no_cache = handle_file_exists(cache, save_fd, key, *header);
         doc = (cache->size == 0) ? no_cache : cache_get(cache,key);
     }
+
     // ===========================Setting up response to the client=================================
     char response[512];
     if (doc) {
@@ -313,9 +318,11 @@ void handle_search(Command *cmd,Cache *cache, int save_fd, int header[]) {
         int first = 1;
 
         // ===========================Verifies Every Document=================================
+
         for (int i = 1; i < NUMBER_OF_FILES; i++) {
             DocumentInfo *no_cache = handle_file_exists(cache, save_fd, i, header);
             DocumentInfo *doc = (cache->size == 0) ? no_cache : cache_get(cache,i);
+
 
             if (!doc) continue;
 
@@ -392,6 +399,7 @@ void handle_search(Command *cmd,Cache *cache, int save_fd, int header[]) {
             free(args);
             return;
         }
+
 
         int files_per_process = NUMBER_OF_FILES / NUMBER_PROCESSES;
         int remaining_files = NUMBER_OF_FILES % NUMBER_PROCESSES;
@@ -536,6 +544,7 @@ void handle_search(Command *cmd,Cache *cache, int save_fd, int header[]) {
         }
 
         strcat(response, "]\n");    }
+
     else{
         perror("Incorrect number of arguments \n");
         free(args);
@@ -562,8 +571,10 @@ void handle_search(Command *cmd,Cache *cache, int save_fd, int header[]) {
 
 
 void handle_shutdown(Command *cmd, Cache *cache, int *header) {
+
     cache_free(cache);
     free(header);
+
 
     char response[128];
     snprintf(response, sizeof(response), "Server is shutting down\n");
@@ -737,6 +748,7 @@ int handle_write_on_disk(int fd, DocumentInfo *doc, Cache *cache, char cmd, int 
 
 DocumentInfo *handle_file_exists(Cache *cache, int fd, int index, int header[]) {
 
+
     DocumentInfo *doc= cache_get(cache, index);
     if(!doc){
         int header_index = index / HEADER_SIZE;
@@ -757,17 +769,20 @@ DocumentInfo *handle_file_exists(Cache *cache, int fd, int index, int header[]) 
 
         if (isIndexed > 0) {
             doc = malloc(sizeof(DocumentInfo));
+
             if (!doc) {
                 handle_error("Failed to allocate memory for DocumentInfo");
             }
 
-            //memset(doc, 0, sizeof(DocumentInfo));
+
             off_t doc_position = header_position + (HEADER_SIZE * sizeof(int)) + (header_offset * sizeof(DocumentInfo));
 
             if (lseek(fd, doc_position, SEEK_SET) == -1) {
                 perror("Error seeking to document position");
                 free(doc);
+
                 return NULL;
+
             }
 
 
@@ -776,7 +791,9 @@ DocumentInfo *handle_file_exists(Cache *cache, int fd, int index, int header[]) 
                 cache_put(cache, doc);
                 free(doc);
             } else {
+
                 perror("Error reading document metadata");
+
                 free(doc);
             }
         }

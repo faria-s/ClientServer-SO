@@ -46,6 +46,7 @@ int cache_is_full(Cache *cache){
 
 int cache_remove(Cache *cache, int index){
 
+
     if(cache->size == 0) return 0;
 
     Cache_entry *entry = g_hash_table_lookup(cache->cache, &index);
@@ -83,6 +84,7 @@ void cache_remove_LRU(Cache* cache){
 
 
 
+
 void cache_put(Cache* cache, DocumentInfo* doc){
 
     if(cache->size == 0){
@@ -97,6 +99,7 @@ void cache_put(Cache* cache, DocumentInfo* doc){
         cache_set_head(entry,cache);
         free(id);
         return;
+
     }
     // ===========================Check If Cache Has Reached Capacity=================================
     else if(cache_is_full(cache)){
@@ -165,12 +168,14 @@ DocumentInfo *cache_get(Cache* cache, int id){
 
 void cache_free(Cache *cache) {
 
+
     if (!cache) {
         return;
     }
 
     g_hash_table_destroy(cache->cache); // Automatically frees all entries
     free(cache);
+
 }
 
 void cache_entry_free(Cache_entry *entry) {
