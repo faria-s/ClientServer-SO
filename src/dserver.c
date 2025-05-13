@@ -15,7 +15,7 @@
 
 int main(int argc, char *argv[]) {
     // ===========================Verifying Input=================================
-    if(argc != 3 || (access(argv[1],F_OK) == -1) || (atoi(argv[2]) == 0)){
+    if(argc != 3 || (access(argv[1],F_OK) == -1) || (atoi(argv[2]) < 0)){
         handle_error("Invalid Server Start Input\n");
     }
     char *path = strdup(argv[1]);
@@ -119,7 +119,7 @@ int main(int argc, char *argv[]) {
                 ssize_t r = read(pfd[0], &received, sizeof(Command));
                 if (r == sizeof(Command)) {
                     handle_client_response(&received, cache, save_fd,&current_id, path, &header);
-=
+
                 } else {
                     handle_error("reading from anonymous pipe\n");
                 }

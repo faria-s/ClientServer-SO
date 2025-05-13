@@ -1,3 +1,0 @@
-Título do documento 1
-Este é um ficheiro de teste.
-Contém texto de exemplo.

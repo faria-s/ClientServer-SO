@@ -106,6 +106,7 @@ void create_new_header(int **header_ptr, int save_fd) {
         perror("Header Realloc");
         return;
     }
+
     *header_ptr = temp;
 
     int old_size = (NUMBER_OF_HEADERS - 1) * HEADER_SIZE;

@@ -77,6 +77,14 @@ void handle_add(Command *cmd, Cache *cache, int *current_id, int save_fd, char* 
 
     // ===========================Creating and Filling Structure=================================
     DocumentInfo *doc = malloc(sizeof(DocumentInfo));
+
+    if(!doc){
+        handle_error("Creating Doc");
+    }
+    // ===========================Initializing the Struct to Zero=================================
+    memset(doc, 0, sizeof(DocumentInfo));
+
+
     doc->id = index;
     strncpy(doc->title, title, MAX_TITLE);
     strncpy(doc->authors, authors, MAX_AUTHORS);
@@ -86,21 +94,19 @@ void handle_add(Command *cmd, Cache *cache, int *current_id, int save_fd, char* 
     // ===========================Verifying If Path Exists=================================
     char response[128];
     if(access(doc->path,F_OK) == 0){
-        // ===========================Unique identifier to send to client=================================
-        int *id = malloc(sizeof(int));
-        *id = index;
-
         // ===========================Inserting in Hashtable=================================
         header[index] = index;
         handle_write_on_disk(save_fd, doc,cache,'a', doc->id);
 
         // ===========================Building Response Message=================================
-        snprintf(response, sizeof(response), "Document %d indexed\n", *id);
-        free(id);
+
+        snprintf(response, sizeof(response), "Document %d indexed\n", doc->id);
+
 
     }
     else{
         snprintf(response, sizeof(response), "Document path doesn't exist\n");
+        free(doc);
     }
 
     // ===========================Setting up FIFO name=================================
@@ -112,12 +118,14 @@ void handle_add(Command *cmd, Cache *cache, int *current_id, int save_fd, char* 
     if (fd == -1) {
         perror("Error opening response FIFO server side\n");
         free(args);
+        free(doc);
         return;
     }
 
     // ===========================Sending Response to client=================================
     write(fd, response, strlen(response));
     close(fd);
+    free(doc);
     free(args);
 }
 
@@ -127,23 +135,26 @@ void handle_consult(Command *cmd, Cache *cache, int save_fd, int **header) {
     // ===========================Getting key from the command=================================
     int key = atoi(cmd->arguments);
 
-    // ===========================Searching the Hashtable=================================
-
-    handle_file_exists(cache, save_fd, key, *header);
-
-    DocumentInfo *doc = cache_get(cache, key);
+    DocumentInfo *doc = NULL;
+    DocumentInfo *no_cache = NULL;
+    if(key > 0){
+        // ===========================Searching the Hashtable=================================
+        no_cache = handle_file_exists(cache, save_fd, key, *header);
+        doc = (cache->size == 0) ? no_cache : cache_get(cache,key);
+    }
 
     // ===========================Setting up response to the client=================================
     char response[512];
     if (doc) {
         snprintf(response, sizeof(response),
-                 "ID: %d \nTitle: %s\nAuthors: %s\nYear: %s\nPath: %s\n",
-                 doc->id,doc->title, doc->authors, doc->year, doc->path);
+                 "Title: %s\nAuthors: %s\nYear: %s\nPath: %s\n",
+                 doc->title, doc->authors, doc->year, doc->path);
     } else {
         snprintf(response, sizeof(response),
                  "Couldn't find document with ID %d\n", key);
     }
 
+    if(cache->size == 0) free(doc);
     // ===========================Setting up FIFO name=================================
     char fifo_name[64];
     snprintf(fifo_name, sizeof(fifo_name), "/tmp/client_%d", cmd->processID);
@@ -165,7 +176,11 @@ void handle_delete(Command *cmd, Cache *cache, int saved_fd,int header[]) {
     int key = atoi(cmd->arguments);
 
     // ===========================Removing=================================
-    int removed = handle_write_on_disk(saved_fd, NULL, cache, 'd', key);
+    int removed = 0;
+
+    if(key > 0){
+        removed = handle_write_on_disk(saved_fd, NULL, cache, 'd', key);
+    }
 
     // ===========================Setting up response to the client=================================
     char response[128];
@@ -206,25 +221,63 @@ void handle_lines_with_keyword(Command *cmd, Cache *cache, int save_fd, int head
         snprintf(response, sizeof(response), "Error: invalid arguments for flag -l\n");
     } else {
         int key = atoi(key_str);
-        handle_file_exists(cache, save_fd, key, header);
-        DocumentInfo *doc = cache_get(cache, key);
+        DocumentInfo *doc = NULL;
+
+        if(key > 0){
+            DocumentInfo *no_cache = handle_file_exists(cache, save_fd, key, header);
+            doc = (cache->size == 0) ? no_cache : cache_get(cache,key);
+        }
 
         if (!doc) {
             snprintf(response, sizeof(response), "Couldn't find document with ID %d\n", key);
         } else {
-            // ===========================Setting up 'grep | wc -l' command=================================
-            char command[512];
-            snprintf(command, sizeof(command),
-                     "grep -c '%s' '%s' 2>/dev/null", keyword, doc->path); // hides error messages
 
-            FILE *fp = popen(command, "r");
-            if (fp == NULL) {
-                snprintf(response, sizeof(response), "Error executing grep command\n");
+            // ===========================Creating Pipe=================================
+            int pfd[2];
+            if (pipe(pfd) == -1) {
+                perror("pipe failed");
+            }
+
+            // ===========================Creating Child Process To Execute grep=================================
+            pid_t pid = fork();
+            if (pid == -1) {
+                perror("fork failed");
+                close(pfd[0]);
+                close(pfd[1]);
+            }
+
+            if (pid == 0) {
+                // ===========================CHILD=================================
+                close(pfd[0]);
+                // ===========================STDOUT Poiting At Writing Pipe=================================
+                dup2(pfd[1], STDOUT_FILENO);
+                close(pfd[1]);
+
+                // ===========================Executing Grep=================================
+                execlp("grep", "grep", "-c", keyword, doc->path, NULL);
+
+                free(doc);
+                perror("execlp failed");
+                _exit(1);
             } else {
-                int count;
-                fscanf(fp, "%d", &count);
-                snprintf(response, sizeof(response), "%d\n", count);
-                pclose(fp);
+                // ===========================PARENT=================================
+                close(pfd[1]);
+
+                // ===========================Reads Grep Output=================================
+                char buffer[256];
+                ssize_t count = read(pfd[0], buffer, sizeof(buffer) - 1);
+                close(pfd[0]);
+
+                // ===========================Waits For Child Process To Finish=================================
+                int status;
+                waitpid(pid, &status, 0);
+
+                if(cache->size == 0) free(doc);
+                // ===========================Verifies If Grep Output Is Empty=================================
+                if (count > 0) {
+                    // ===========================Adds Document ID To Response=================================
+                    snprintf(response, sizeof(response), "%d\n", atoi(buffer));
+                }
             }
         }
     }
@@ -243,7 +296,6 @@ void handle_lines_with_keyword(Command *cmd, Cache *cache, int save_fd, int head
     // ===========================Sending Response to client=================================
     write(fd, response, strlen(response));
     close(fd);
-
     free(args);
 }
 
@@ -252,6 +304,8 @@ void handle_search(Command *cmd,Cache *cache, int save_fd, int header[]) {
     char response[3000];
 
     response[0] = '\0';
+    int NUMBER_OF_HEADERS = header[0];
+    int NUMBER_OF_FILES = HEADER_SIZE*NUMBER_OF_HEADERS;
 
     // ===========================Verifies If Has nr_processes=================================
     if (cmd->number_arguments == 3) {
@@ -264,9 +318,11 @@ void handle_search(Command *cmd,Cache *cache, int save_fd, int header[]) {
         int first = 1;
 
         // ===========================Verifies Every Document=================================
-        for (int i = 1; i < HEADER_SIZE; i++) {
-            handle_file_exists(cache, save_fd, i, header);
-            DocumentInfo *doc = cache_get(cache, i);
+
+        for (int i = 1; i < NUMBER_OF_FILES; i++) {
+            DocumentInfo *no_cache = handle_file_exists(cache, save_fd, i, header);
+            DocumentInfo *doc = (cache->size == 0) ? no_cache : cache_get(cache,i);
+
 
             if (!doc) continue;
 
@@ -323,6 +379,8 @@ void handle_search(Command *cmd,Cache *cache, int save_fd, int header[]) {
                     first = 0;
                 }
             }
+
+            if(cache->size == 0) free(doc);
         }
 
         strcat(response, "]\n");
@@ -343,82 +401,150 @@ void handle_search(Command *cmd,Cache *cache, int save_fd, int header[]) {
         }
 
 
+        int files_per_process = NUMBER_OF_FILES / NUMBER_PROCESSES;
+        int remaining_files = NUMBER_OF_FILES % NUMBER_PROCESSES;
+
         strcat(response, "[");
-
         int first = 1;
-        int active_processes = 0; // Track the number of active child processes
 
-        for (int i = 1; i < HEADER_SIZE; i++) {
-            handle_file_exists(cache, save_fd, i, header);
-            DocumentInfo *doc = cache_get(cache, i);
-
-            if (!doc) continue;
-
-            int pfd[2];
-            if (pipe(pfd) == -1) {
+        // =========================== Creates Pipe For Each Process ============================
+        int pipes[NUMBER_PROCESSES][2];
+        for (int i = 0; i < NUMBER_PROCESSES; i++) {
+            if (pipe(pipes[i]) == -1) {
                 perror("pipe failed");
-                continue;
+                free(args);
+                return;
             }
+        }
 
+        // =========================== Creates Fork For Each Process ============================
+        for (int i = 0; i < NUMBER_PROCESSES; i++) {
             pid_t pid = fork();
             if (pid == -1) {
                 perror("fork failed");
-                close(pfd[0]);
-                close(pfd[1]);
-                continue;
+                free(args);
+                return;
             }
 
             if (pid == 0) {
-                // ===========================CHILD PROCESS===========================
-                close(pfd[0]);
+                // =========================== CHILD PROCESS ============================
+                close(pipes[i][0]);
 
-                dup2(pfd[1], STDOUT_FILENO);
-                close(pfd[1]);
-
-                execlp("grep", "grep", keyword, doc->path, NULL);
-
-                perror("execlp failed");
-                _exit(1);
-            } else {
-                // ===========================PARENT PROCESS===========================
-                close(pfd[1]);
-                active_processes++;
-
-                // Wait for child processes if the limit is reached
-                if (active_processes >= NUMBER_PROCESSES) {
-                    int status;
-                    wait(&status);
-                    active_processes--;
+                int start = i * files_per_process;
+                int end = start + files_per_process;
+                if (i == NUMBER_PROCESSES- 1) {
+                    end += remaining_files;
                 }
 
-                char buffer[256];
-                ssize_t count = read(pfd[0], buffer, sizeof(buffer) - 1);
-                close(pfd[0]);
+                char child_response[3000];
+                child_response[0] = '\0';
+                int child_first = 1;
 
-                // Check if grep found matches
-                if (count > 0) {
-                    buffer[count] = '\0';
+                if(start == 0) start = 1;
+                for (int j = start; j < end; j++) {
+                    DocumentInfo *no_cache = handle_file_exists(cache, save_fd, j, header);
+                    DocumentInfo *doc = (cache->size == 0) ? no_cache : cache_get(cache,j);
 
-                    if (!first) {
-                        strncat(response, ",", sizeof(response) - strlen(response) - 1);
+                    if (!doc){
+                        continue;
                     }
-                    char id_str[16];
-                    snprintf(id_str, sizeof(id_str), "%d", i);
-                    strncat(response, id_str, sizeof(response) - strlen(response) - 1);
-                    first = 0;
+
+                    int pfd[2];
+                    if (pipe(pfd) == -1) {
+                        perror("pipe failed");
+                        continue;
+                    }
+
+                    pid_t grep_pid = fork();
+                    if (grep_pid == -1) {
+                        perror("fork failed");
+                        close(pfd[0]);
+                        close(pfd[1]);
+                        continue;
+                    }
+
+                    int temp_fd = open("tmp/error.log", O_WRONLY | O_CREAT | O_TRUNC, 0644);
+                    if (temp_fd == -1) {
+                        handle_error("open tmp file");
+                    }
+
+                    if (grep_pid == 0) {
+                        // =========================== GREP CHILD ============================
+                        close(pfd[0]);
+                        dup2(pfd[1], STDOUT_FILENO);
+                        close(pfd[1]);
+                        dup2(temp_fd, STDERR_FILENO);
+                        close(temp_fd);
+
+                        execlp("grep", "grep", keyword, doc->path, NULL);
+
+                        perror("execlp failed");
+                        _exit(1);
+                    } else {
+                        // =========================== GREP PARENT ============================
+                        close(pfd[1]);
+
+                        // =========================== Reads Child Response ============================
+                        char buffer[512];
+                        ssize_t count = read(pfd[0], buffer, sizeof(buffer) - 1);
+                        close(pfd[0]);
+
+                        // =========================== Waits for Especif Child Process Death ============================
+                        waitpid(grep_pid, NULL, 0);
+
+                        // =========================== Waits for Especif Child Process Death ============================
+                        if (count > 0) {
+                            buffer[count] = '\0';
+
+                            if (!child_first) {
+                                strncat(child_response, ",", sizeof(child_response) - strlen(child_response) - 1);
+                            }
+                            char id_str[32];
+                            snprintf(id_str, sizeof(id_str), "%d", j);
+                            strncat(child_response, id_str, sizeof(child_response) - strlen(child_response) - 1);
+                            child_first = 0;
+                        }
+                    }
+                    if(cache->size == 0) free(doc);
                 }
+
+                write(pipes[i][1], child_response, strlen(child_response));
+                close(pipes[i][1]);
+                _exit(0);
             }
         }
 
-        while(active_processes > 0){
-            int status;
-            wait(&status);
-            active_processes--;
+        // =========================== PARENT PROCESS ============================
+
+        // =========================== Close Writing Pipes for Each Process ============================
+        for (int i = 0; i < NUMBER_PROCESSES; i++) {
+            close(pipes[i][1]);
         }
 
-        strcat(response, "]\n");
+        // =========================== Read Pipes of Each Process ============================
+        for (int i = 0; i < NUMBER_PROCESSES; i++) {
 
-    }
+            char buffer[3000];
+            ssize_t count = read(pipes[i][0], buffer, sizeof(buffer) - 1);
+            close(pipes[i][0]);
+
+            // =========================== Adds Found Indexes Client Response ============================
+            if (count > 0) {
+                buffer[count] = '\0';
+
+                if (!first) {
+                    strncat(response, ",", sizeof(response) - strlen(response) - 1);
+                }
+                strncat(response, buffer, sizeof(response) - strlen(response) - 1);
+                first = 0;
+            }
+
+            // =========================== Waits All Childreen Deaths ============================
+            wait(NULL);
+        }
+
+        strcat(response, "]\n");    }
+
     else{
         perror("Incorrect number of arguments \n");
         free(args);
@@ -445,9 +571,10 @@ void handle_search(Command *cmd,Cache *cache, int save_fd, int header[]) {
 
 
 void handle_shutdown(Command *cmd, Cache *cache, int *header) {
-    g_hash_table_destroy(cache->cache);
+
+    cache_free(cache);
     free(header);
-    free(cache);
+
 
     char response[128];
     snprintf(response, sizeof(response), "Server is shutting down\n");
@@ -619,12 +746,11 @@ int handle_write_on_disk(int fd, DocumentInfo *doc, Cache *cache, char cmd, int 
 
 }
 
-int handle_file_exists(Cache *cache, int fd, int index, int header[]) {
-    int where_exists = NOT_FOUND;
+DocumentInfo *handle_file_exists(Cache *cache, int fd, int index, int header[]) {
 
-    if (g_hash_table_contains(cache->cache, &index)) {
-        where_exists = FOUND_IN_CACHE;
-    } else {
+
+    DocumentInfo *doc= cache_get(cache, index);
+    if(!doc){
         int header_index = index / HEADER_SIZE;
         int header_offset = index % HEADER_SIZE;
 
@@ -632,33 +758,38 @@ int handle_file_exists(Cache *cache, int fd, int index, int header[]) {
 
         if (lseek(fd, header_position + header_offset * sizeof(int), SEEK_SET) == -1) {
             perror("Error seeking to header position");
-            return NOT_FOUND;
+            return NULL;
         }
 
         int isIndexed;
         if (read(fd, &isIndexed, sizeof(int)) != sizeof(int)) {
             perror("Error reading isIndexed value");
-            return NOT_FOUND;
+            return NULL;
         }
 
         if (isIndexed > 0) {
-            DocumentInfo *doc = malloc(sizeof(DocumentInfo));
+            doc = malloc(sizeof(DocumentInfo));
+
             if (!doc) {
                 handle_error("Failed to allocate memory for DocumentInfo");
             }
+
 
             off_t doc_position = header_position + (HEADER_SIZE * sizeof(int)) + (header_offset * sizeof(DocumentInfo));
 
             if (lseek(fd, doc_position, SEEK_SET) == -1) {
                 perror("Error seeking to document position");
                 free(doc);
-                return NOT_FOUND;
+
+                return NULL;
+
             }
 
 
             if (read(fd, doc, sizeof(DocumentInfo)) == sizeof(DocumentInfo)) {
-                where_exists = FOUND_ON_DISK;
+                if(cache->size == 0) return doc;
                 cache_put(cache, doc);
+                free(doc);
             } else {
 
                 perror("Error reading document metadata");
@@ -668,5 +799,5 @@ int handle_file_exists(Cache *cache, int fd, int index, int header[]) {
         }
     }
 
-    return where_exists;
+    return doc;
 }
