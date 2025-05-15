@@ -11,12 +11,6 @@
 #include "cache.h"
 
 /**
- * @def MAX_ARGUMENTS_SIZE
- * Maximum size for storing concatenated command arguments.
- */
-#define MAX_ARGUMENTS_SIZE 512
-
-/**
  * @def PIPE_NAME
  * The named pipe for client-server communication.
  */
@@ -27,17 +21,6 @@
  * Path to the saved metadata information file.
  */
 #define DISK_PATH "meta_info.txt"
-
-/**
- * @struct Command
- * @brief Represents a command sent to the server.
- */
-typedef struct {
-    char flag;                          /**< Command flag indicating the operation type. */
-    char arguments[MAX_ARGUMENTS_SIZE]; /**< Concatenated command arguments, separated by '|'. */
-    int number_arguments;               /**< Number of arguments provided. */
-    int processID;                      /**< Client process ID for FIFO communication. */
-} Command;
 
 /**
  * @brief Prints an error message and exits the application.

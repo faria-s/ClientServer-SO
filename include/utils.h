@@ -15,6 +15,23 @@
 #define HEADER_SIZE 512     /**< Number of slots in each header segment. */
 
 /**
+ * @def MAX_ARGUMENTS_SIZE
+ * Maximum size for storing concatenated command arguments.
+ */
+#define MAX_ARGUMENTS_SIZE 512
+
+/**
+ * @struct Command
+ * @brief Represents a command sent to the server.
+ */
+typedef struct {
+    char flag;                          /**< Command flag indicating the operation type. */
+    char arguments[MAX_ARGUMENTS_SIZE]; /**< Concatenated command arguments, separated by '|'. */
+    int number_arguments;               /**< Number of arguments provided. */
+    int processID;                      /**< Client process ID for FIFO communication. */
+} Command;
+
+/**
  * @struct DocumentInfo
  * @brief Represents a document with its metadata.
  */
@@ -77,5 +94,14 @@ int find_empty_index(int **header_ptr, int save_fd);
  */
 void create_new_header(int **header_ptr, int save_fd);
 
+/**
+ * @brief Appends the indexes to response in the -s command.
+ *
+ * @param response Response array.
+ * @param buffer_size Size of buffer.
+ * @param response_len Size of response.
+ * @param data Data to appennd.
+ */
+void append_to_response(char **response, size_t *buffer_size, size_t *response_len, const char *data);
 
 #endif

@@ -52,12 +52,11 @@ int main(int argc, char *argv[]) {
 
     // ===========================Reading Server response=================================
     char response[512];
-    ssize_t bytes_read = read(response_fd, response, sizeof(response) - 1);
-    if (bytes_read > 0) {
-        response[bytes_read] = '\0';
-        write(STDOUT_FILENO, response, strlen(response)); // ? handle this better accordingly to type of response?
-    } else {
-        handle_error("Error reading response from server\n");
+    ssize_t bytes_read;
+    while((bytes_read = read(response_fd, response, sizeof(response) - 1)) > 0){
+        if (bytes_read < sizeof(response_fd))
+                response[bytes_read] = '\0';
+        write(STDOUT_FILENO, response, strlen(response));
     }
 
     close(response_fd);

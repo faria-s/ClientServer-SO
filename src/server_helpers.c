@@ -22,32 +22,6 @@ void handle_error(char *message) {
     exit(EXIT_FAILURE);
 }
 
-void build_command(Command *cmd, int argc, char *argv[]) {
-    // ===========================Checking conditions=================================
-    if (argc < 2) {
-        handle_error("Error: insufficient arguments\n");
-    }
-
-    // ===========================Checking flag in right format '-x'=================================
-    if (argv[1][0] != '-' || strlen(argv[1]) != 2) {
-        handle_error("Error: invalid flag format\n");
-    }
-
-    // ===========================Saving variables in structure=================================
-    cmd->flag = argv[1][1];
-    cmd->processID = getpid();
-    cmd->arguments[0] = '\0';
-    cmd->number_arguments = argc;
-
-    // ===========================Saving arguments splitted with '|'=================================
-    for (int i = 2; i < argc; i++) {
-        strncat(cmd->arguments, argv[i], MAX_ARGUMENTS_SIZE - strlen(cmd->arguments) - 1);
-        if (i < argc - 1) {
-            strncat(cmd->arguments, "|", MAX_ARGUMENTS_SIZE - strlen(cmd->arguments) - 1);
-        }
-    }
-}
-
 void handle_add(Command *cmd, Cache *cache, int *current_id, int save_fd, char* folder_path, int **header_ptr) {
     int* header = *header_ptr;
 
@@ -301,9 +275,17 @@ void handle_lines_with_keyword(Command *cmd, Cache *cache, int save_fd, int head
 
 void handle_search(Command *cmd,Cache *cache, int save_fd, int header[]) {
     char *args = strdup(cmd->arguments);
-    char response[3000];
+    size_t buffer_size = 3000;
+    char *response = malloc(buffer_size);
+
+    if (!response) {
+        free(args);
+        handle_error("malloc failed");
+    }
 
     response[0] = '\0';
+    size_t response_len = 0;
+
     int NUMBER_OF_HEADERS = header[0];
     int NUMBER_OF_FILES = HEADER_SIZE*NUMBER_OF_HEADERS;
 
@@ -369,13 +351,17 @@ void handle_search(Command *cmd,Cache *cache, int save_fd, int header[]) {
 
                 // ===========================Verifies If Grep Output Is Empty=================================
                 if (count > 0) {
+                    buffer[count] = '\0';
+
                     // ===========================Adds Document ID To Response=================================
                     if (!first) {
-                        strcat(response, ",");
+                        append_to_response(&response, &buffer_size, &response_len, ",");
                     }
+
                     char id_str[16];
                     snprintf(id_str, sizeof(id_str), "%d", i);
-                    strcat(response, id_str);
+                    append_to_response(&response, &buffer_size, &response_len, id_str);
+
                     first = 0;
                 }
             }
@@ -383,7 +369,7 @@ void handle_search(Command *cmd,Cache *cache, int save_fd, int header[]) {
             if(cache->size == 0) free(doc);
         }
 
-        strcat(response, "]\n");
+        append_to_response(&response, &buffer_size, &response_len, "]\n");
     }
     else if(cmd->number_arguments == 4){
         // ===========================Getting arguments from the command=================================
@@ -485,27 +471,29 @@ void handle_search(Command *cmd,Cache *cache, int save_fd, int header[]) {
                         close(pfd[1]);
 
                         // =========================== Reads Child Response ============================
-                        char buffer[512];
+                        char buffer[3000];
                         ssize_t count = read(pfd[0], buffer, sizeof(buffer) - 1);
                         close(pfd[0]);
 
                         // =========================== Waits for Especif Child Process Death ============================
                         waitpid(grep_pid, NULL, 0);
 
-                        // =========================== Waits for Especif Child Process Death ============================
                         if (count > 0) {
                             buffer[count] = '\0';
 
                             if (!child_first) {
                                 strncat(child_response, ",", sizeof(child_response) - strlen(child_response) - 1);
                             }
-                            char id_str[32];
+
+                            char id_str[16];
                             snprintf(id_str, sizeof(id_str), "%d", j);
                             strncat(child_response, id_str, sizeof(child_response) - strlen(child_response) - 1);
+
                             child_first = 0;
                         }
                     }
-                    if(cache->size == 0) free(doc);
+
+                    if (cache->size == 0) free(doc);
                 }
 
                 write(pipes[i][1], child_response, strlen(child_response));
@@ -514,37 +502,31 @@ void handle_search(Command *cmd,Cache *cache, int save_fd, int header[]) {
             }
         }
 
-        // =========================== PARENT PROCESS ============================
-
-        // =========================== Close Writing Pipes for Each Process ============================
         for (int i = 0; i < NUMBER_PROCESSES; i++) {
             close(pipes[i][1]);
         }
 
-        // =========================== Read Pipes of Each Process ============================
         for (int i = 0; i < NUMBER_PROCESSES; i++) {
-
             char buffer[3000];
             ssize_t count = read(pipes[i][0], buffer, sizeof(buffer) - 1);
             close(pipes[i][0]);
 
-            // =========================== Adds Found Indexes Client Response ============================
             if (count > 0) {
                 buffer[count] = '\0';
 
                 if (!first) {
-                    strncat(response, ",", sizeof(response) - strlen(response) - 1);
+                    append_to_response(&response, &buffer_size, &response_len, ",");
                 }
-                strncat(response, buffer, sizeof(response) - strlen(response) - 1);
+
+                append_to_response(&response, &buffer_size, &response_len, buffer);
                 first = 0;
             }
 
-            // =========================== Waits All Childreen Deaths ============================
             wait(NULL);
         }
 
-        strcat(response, "]\n");    }
-
+        append_to_response(&response, &buffer_size, &response_len, "]\n");
+    }
     else{
         perror("Incorrect number of arguments \n");
         free(args);
@@ -566,6 +548,7 @@ void handle_search(Command *cmd,Cache *cache, int save_fd, int header[]) {
     // ===========================Sending Response to client=================================
     write(fd, response, strlen(response));
     close(fd);
+    free(response);
     free(args);
 }
 

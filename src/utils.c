@@ -16,6 +16,36 @@ DocumentInfo* find_document_by_id(GHashTable *cache, int id) {
     return doc;
 }
 
+void build_command(Command *cmd, int argc, char *argv[]) {
+    // ===========================Checking conditions=================================
+    if (argc < 2) {
+        perror("Error: invalid flag format\n");
+        return;
+    }
+
+    // ===========================Checking flag in right format '-x'=================================
+    if (argv[1][0] != '-' || strlen(argv[1]) != 2) {
+        perror("Error: invalid flag format\n");
+        return;
+    }
+
+    // ===========================Saving variables in structure=================================
+    cmd->flag = argv[1][1];
+    cmd->processID = getpid();
+    cmd->arguments[0] = '\0';
+    cmd->number_arguments = argc;
+
+    // ===========================Saving arguments splitted with '|'=================================
+    for (int i = 2; i < argc; i++) {
+        strncat(cmd->arguments, argv[i], MAX_ARGUMENTS_SIZE - strlen(cmd->arguments) - 1);
+        if (i < argc - 1) {
+            strncat(cmd->arguments, "|", MAX_ARGUMENTS_SIZE - strlen(cmd->arguments) - 1);
+        }
+    }
+}
+
+
+
 void print_doc(DocumentInfo *doc){
     if(doc){
         printf("Printing...\nID: %d \nTitle: %s\nAuthors: %s\nYear: %s\nPath: %s\n",
@@ -119,4 +149,22 @@ void create_new_header(int **header_ptr, int save_fd) {
         return;
     }
 
+}
+
+void append_to_response(char **response, size_t *buffer_size, size_t *response_len, const char *data) {
+    size_t data_len = strlen(data);
+
+    if (*response_len + data_len + 1 >= *buffer_size) {
+        while (*response_len + data_len + 1 >= *buffer_size) {
+            *buffer_size *= 2;
+        }
+        *response = realloc(*response, *buffer_size);
+        if (!*response) {
+            perror("realloc failed");
+            exit(EXIT_FAILURE);
+        }
+    }
+
+    strcat(*response, data);
+    *response_len += data_len;
 }
