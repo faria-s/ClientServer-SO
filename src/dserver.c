@@ -111,8 +111,6 @@ int main(int argc, char *argv[]) {
                 // ===========================CHILD===========================
                 close(pfd[0]);
 
-                // ===========================Checking for modification flag===========================
-
                 write(pfd[1], cmd, sizeof(Command));
 
                 close(pfd[1]);
