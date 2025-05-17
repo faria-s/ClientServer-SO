@@ -22,7 +22,7 @@ void handle_error(char *message) {
     exit(EXIT_FAILURE);
 }
 
-void handle_add(Command *cmd, Cache *cache, int *current_id, int save_fd, char* folder_path, int **header_ptr) {
+void handle_add(Command *cmd, Cache *cache, int *current_id, int save_fd, char* folder_path, int **header_ptr, int pfd[]) {
     int* header = *header_ptr;
 
     // ===========================Setting up variables=================================
@@ -71,6 +71,11 @@ void handle_add(Command *cmd, Cache *cache, int *current_id, int save_fd, char* 
         // ===========================Inserting in Hashtable=================================
         header[index] = index;
         handle_write_on_disk(save_fd, doc,cache,'a', doc->id);
+        if (pfd && pfd[1] >= 0) {
+            close(pfd[0]);
+            write(pfd[1], &index, sizeof(int));
+            close(pfd[1]);
+        }
 
         // ===========================Building Response Message=================================
 
@@ -104,7 +109,7 @@ void handle_add(Command *cmd, Cache *cache, int *current_id, int save_fd, char* 
 }
 
 
-void handle_consult(Command *cmd, Cache *cache, int save_fd, int **header) {
+void handle_consult(Command *cmd, Cache *cache, int save_fd, int **header, int pfd[]) {
 
     // ===========================Getting key from the command=================================
     int key = atoi(cmd->arguments);
@@ -115,6 +120,11 @@ void handle_consult(Command *cmd, Cache *cache, int save_fd, int **header) {
         // ===========================Searching the Hashtable=================================
         no_cache = handle_file_exists(cache, save_fd, key, *header);
         doc = (cache->size == 0) ? no_cache : cache_get(cache,key);
+        if (pfd && pfd[1] >= 0) {
+            close(pfd[0]);
+            write(pfd[1], &key, sizeof(int));
+            close(pfd[1]);
+        }
     }
 
     // ===========================Setting up response to the client=================================
@@ -182,7 +192,7 @@ void handle_delete(Command *cmd, Cache *cache, int saved_fd,int header[]) {
     close(fd);
 }
 
-void handle_lines_with_keyword(Command *cmd, Cache *cache, int save_fd, int header[]) {
+void handle_lines_with_keyword(Command *cmd, Cache *cache, int save_fd, int header[], int pfd[]) {
     // ===========================Getting arguments from the command=================================
     char *args = strdup(cmd->arguments);
     char *key_str = strtok(args, "|");
@@ -200,6 +210,11 @@ void handle_lines_with_keyword(Command *cmd, Cache *cache, int save_fd, int head
         if(key > 0){
             DocumentInfo *no_cache = handle_file_exists(cache, save_fd, key, header);
             doc = (cache->size == 0) ? no_cache : cache_get(cache,key);
+            if (pfd && pfd[1] >= 0) {
+                close(pfd[0]);
+                write(pfd[1], &key, sizeof(int));
+                close(pfd[1]);
+            }
         }
 
         if (!doc) {
@@ -621,20 +636,20 @@ void handle_cache(Command *cmd, Cache *cache){
     close(fd);
 }
 
-void handle_client_response(Command *cmd, Cache* cache, int save_fd, int* current_id, char* path, int **header_ptr){
+void handle_client_response(Command *cmd, Cache* cache, int save_fd, int* current_id, char* path, int **header_ptr, int pfd[]){
     switch (cmd->flag)
     {
     case 'a':
-        handle_add(cmd, cache, current_id,save_fd,path,header_ptr);
+        handle_add(cmd, cache, current_id,save_fd,path,header_ptr,pfd);
         break;
     case 'd':
         handle_delete(cmd, cache, save_fd, *header_ptr);
         break;
     case 'c':
-        handle_consult(cmd, cache,save_fd, header_ptr);
+        handle_consult(cmd, cache,save_fd, header_ptr,pfd);
         break;
     case 'l':
-        handle_lines_with_keyword(cmd, cache, save_fd, *header_ptr);
+        handle_lines_with_keyword(cmd, cache, save_fd, *header_ptr, pfd);
         break;
    case 's':
         handle_search(cmd, cache,save_fd, *header_ptr);
@@ -711,7 +726,6 @@ int handle_write_on_disk(int fd, DocumentInfo *doc, Cache *cache, char cmd, int 
 
         }
 
-        cache_put(cache, doc);
         writed = 1;
 
     } else if (cmd == 'd') {
@@ -719,8 +733,6 @@ int handle_write_on_disk(int fd, DocumentInfo *doc, Cache *cache, char cmd, int 
         if (write(fd, &zero, sizeof(int)) != sizeof(int)) {
             handle_error("Failed to write zero to header for deletion");
         }
-
-        cache_remove(cache, id);
 
         writed = 1;
     }

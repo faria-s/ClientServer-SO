@@ -8,7 +8,7 @@ if ! pgrep -f "dserver" > /dev/null; then
     exit 1
 fi
 
-ITERATIONS=20
+ITERATIONS=10
 CONSULTS=10
 SEARCH_KEYWORD="praia"
 

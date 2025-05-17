@@ -112,13 +112,6 @@ int find_empty_index(int **header_ptr, int save_fd) {
         }
     }
 
-    if (i == HEADER_SIZE * NUMBER_OF_HEADERS) {
-        create_new_header(header_ptr, save_fd);
-        header = *header_ptr; // Update local pointer after realloc
-        NUMBER_OF_HEADERS = header[0];
-        index = HEADER_SIZE * (NUMBER_OF_HEADERS - 1);
-    }
-
     if (index == 0) {
         perror("header full");
     }

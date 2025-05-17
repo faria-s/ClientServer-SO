@@ -48,8 +48,9 @@ void build_command(Command *cmd, int argc, char *argv[]);
  * @param save_fd File descriptor for metadata storage.
  * @param folder_path Path to the storage folder.
  * @param header_ptr Pointer to the header array.
+ * @param pfd pipe to father.
  */
-void handle_add(Command *cmd, Cache *cache, int *current_id, int save_fd, char* folder_path, int **header_ptr);
+void handle_add(Command *cmd, Cache *cache, int *current_id, int save_fd, char* folder_path, int **header_ptr, int pfd[]);
 
 /**
  * @brief Handles the consultation of a document by its ID.
@@ -58,8 +59,9 @@ void handle_add(Command *cmd, Cache *cache, int *current_id, int save_fd, char* 
  * @param cache Cache structure where documents are indexed.
  * @param save_fd File descriptor for metadata storage.
  * @param header Pointer to the header array.
+ * @param pfd pipe to father.
  */
-void handle_consult(Command *cmd, Cache *cache, int save_fd, int **header);
+void handle_consult(Command *cmd, Cache *cache, int save_fd, int **header, int pfd[]);
 
 /**
  * @brief Handles the deletion of a document by its ID.
@@ -79,7 +81,7 @@ void handle_delete(Command *cmd, Cache *cache, int saved_fd, int header[]);
  * @param fd File descriptor for metadata storage.
  * @param header Header array for index tracking.
  */
-void handle_lines_with_keyword(Command *cmd, Cache *cache, int fd, int header[]);
+void handle_lines_with_keyword(Command *cmd, Cache *cache, int fd, int header[], int pfd[]);
 
 /**
  * @brief Routes client commands to the appropriate handler based on the command flag.
@@ -90,8 +92,9 @@ void handle_lines_with_keyword(Command *cmd, Cache *cache, int fd, int header[])
  * @param current_id Pointer to the current document ID.
  * @param path Path to the storage folder.
  * @param header_ptr Pointer to the header array.
+ * @param pfd pipe to father.
  */
-void handle_client_response(Command *cmd, Cache* cache, int save_fd, int* current_id, char* path, int **header_ptr);
+void handle_client_response(Command *cmd, Cache* cache, int save_fd, int* current_id, char* path, int **header_ptr, int pfd[]);
 
 /**
  * @brief Handles the server shutdown process, freeing memory and resources.
