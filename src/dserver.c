@@ -31,6 +31,9 @@ int main(int argc, char *argv[]) {
     int NUMBER_OF_HEADERS;
     int* header;
 
+    // ===========================Set Up Queue=================================
+    GAsyncQueue *request_queue = g_async_queue_new();
+
     // ===========================Opens Saved Data File=================================
     if(access(DISK_PATH, F_OK) == 0){
         save_fd = open(DISK_PATH, O_RDWR, 0644);
@@ -57,6 +60,7 @@ int main(int argc, char *argv[]) {
         handle_error("opening metadata file for writing");
     }
 
+
     // ===========================Avoid Zombies=================================
 
      signal(SIGCHLD, SIG_IGN);
@@ -80,13 +84,19 @@ int main(int argc, char *argv[]) {
         }
 
         // ===========================Reading command=================================
-        Command cmd;
-        ssize_t bytes = read(fd, &cmd, sizeof(Command));
+        Command *command = malloc(sizeof(Command));
+        ssize_t bytes = read(fd, command, sizeof(Command));
         close(fd);
 
         if (bytes != sizeof(Command)) {
+            free(command);
             handle_error("reading from FIFO server side\n");
         }
+
+        g_async_queue_push(request_queue, command);
+
+        while (g_async_queue_length(request_queue)) {
+            Command *cmd = (Command *)g_async_queue_pop(request_queue);
 
             // ===========================Creating pipe for father-children communication=================================
             int pfd[2];
@@ -99,89 +109,46 @@ int main(int argc, char *argv[]) {
 
             if (pid == 0) {
                 // ===========================CHILD===========================
-                if (cmd.flag == 'a' || cmd.flag == 'd' || cmd.flag == 'c' || cmd.flag == 'l'){
-                    handle_client_response(&cmd, cache, save_fd,&current_id, path, &header, pfd);
-                }
-                else{
-                    close(pfd[0]);
-                    write(pfd[1], &cmd, sizeof(Command));
-                    close(pfd[1]);
-                }
+                close(pfd[0]);
+
+                write(pfd[1], cmd, sizeof(Command));
+
+                close(pfd[1]);
 
                 _exit(0);
             } else {
                 // ===========================FATHER===========================
+                close(pfd[1]);
 
                 // ===========================Checking for modification flag===========================
 
-                if(cmd.flag == 'a'){
-                    int received;
-                    close(pfd[1]);
-                    ssize_t r = read(pfd[0], &received, sizeof(int));
-                    close(pfd[0]);
-                    if (r == sizeof(int)) {
-
-                        header[received] = received;
-                        if(cache->size > 0)
-                            handle_file_exists(cache, save_fd, received, header);
-
-                        if (received + 1 == HEADER_SIZE * NUMBER_OF_HEADERS) {
-                            create_new_header(&header, save_fd);
-                            NUMBER_OF_HEADERS = header[0];
-                        }
-
-                    } else {
-                        handle_error("reading from anonymous pipe\n");
-                    }
-                }
-                else if (cmd.flag == 'c'|| cmd.flag == 'l'){
-                    int received;
-                    close(pfd[1]);
-                    ssize_t r = read(pfd[0], &received, sizeof(int));
-                    close(pfd[0]);
-                    if (r == sizeof(int)) {
-                        if(cache->size > 0)
-                            handle_file_exists(cache, save_fd, received, header);
-                    } else {
-                        handle_error("reading from anonymous pipe\n");
-                    }
-                }
-                else if (cmd.flag == 'd'){
-                    int received;
-                    close(pfd[1]);
-                    ssize_t r = read(pfd[0], &received, sizeof(int));
-                    close(pfd[0]);
-                    if (r == sizeof(int)) {
-                        if(cache->size > 0)
-                            cache_remove(cache,received);
-                    } else {
-                        handle_error("reading from anonymous pipe\n");
-                    }
-                }
-                else if (cmd.flag == 's' ||cmd.flag == 'p') {
+                if (cmd->flag == 'a' || cmd->flag == 'd' || cmd->flag == 'c' || cmd->flag == 'l' || cmd->flag == 's' ||cmd->flag == 'p') {
                     Command received;
-                    close(pfd[1]);
                     ssize_t r = read(pfd[0], &received, sizeof(Command));
-                    close(pfd[0]);
                     if (r == sizeof(Command)) {
-                        handle_client_response(&received, cache, save_fd,&current_id, path, &header,NULL);
+                        handle_client_response(&received, cache, save_fd,&current_id, path, &header);
+
                     } else {
                         handle_error("reading from anonymous pipe\n");
                     }
                 }
 
+                close(pfd[0]);
             }
 
             // ===========================Checking for server ending flag===========================
-            if (cmd.flag == 'f') {
+            if (cmd->flag == 'f') {
 
-                handle_shutdown(&cmd, cache, header);
+                handle_shutdown(cmd, cache, header);
 
 
                 printf("Server is shutting down\n");
                 running = 0;
             }
+        }
+        free(command);
     }
+    g_async_queue_unref(request_queue);
     if(save_fd){
         close(save_fd);
     }
