@@ -1,6 +1,6 @@
 # SO
 
-## Grade: /20 ⭐️
+## Grade: 18.75/20 ⭐️
 
 A Server-Client App, made for our [SO](https://www.di.uminho.pt/~jno/sitedi/uc_J304N1.html) class.
 
@@ -17,7 +17,7 @@ $ make
 
 #### Running the server
 ```bash
-$ ./bin/dserver <dataset_path> <cache_size> 
+$ ./bin/dserver <dataset_path> <cache_size>
 ```
 
 #### Indexing a file

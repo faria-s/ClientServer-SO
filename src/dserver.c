@@ -62,7 +62,6 @@ int main(int argc, char *argv[]) {
 
 
     // ===========================Avoid Zombies=================================
-
      signal(SIGCHLD, SIG_IGN);
 
     // ===========================Creating Main FIFO=================================
@@ -71,7 +70,6 @@ int main(int argc, char *argv[]) {
             handle_error("creating main fifo server side\n");
         }
     }
-
 
     // ===========================Main Loop to receive queries=================================
     int running = 1;
@@ -98,60 +96,29 @@ int main(int argc, char *argv[]) {
         while (g_async_queue_length(request_queue)) {
             Command *cmd = (Command *)g_async_queue_pop(request_queue);
 
-            // ===========================Creating pipe for father-children communication=================================
-            int pfd[2];
-            if (pipe(pfd) == -1) {
-                handle_error("creating anonymous pipe\n");
-            }
-
-            // ===========================Creating child process=================================
-            pid_t pid = fork();
-
-            if (pid == 0) {
-                // ===========================CHILD===========================
-                close(pfd[0]);
-
-                write(pfd[1], cmd, sizeof(Command));
-
-                close(pfd[1]);
-
-                _exit(0);
-            } else {
-                // ===========================FATHER===========================
-                close(pfd[1]);
-
                 // ===========================Checking for modification flag===========================
 
                 if (cmd->flag == 'a' || cmd->flag == 'd' || cmd->flag == 'c' || cmd->flag == 'l' || cmd->flag == 's' ||cmd->flag == 'p') {
-                    Command received;
-                    ssize_t r = read(pfd[0], &received, sizeof(Command));
-                    if (r == sizeof(Command)) {
-                        handle_client_response(&received, cache, save_fd,&current_id, path, &header);
-
-                    } else {
-                        handle_error("reading from anonymous pipe\n");
-                    }
+                    handle_client_response(cmd, cache, save_fd,&current_id, path, &header);
                 }
-
-                close(pfd[0]);
-            }
 
             // ===========================Checking for server ending flag===========================
             if (cmd->flag == 'f') {
 
                 handle_shutdown(cmd, cache, header);
-
-
                 printf("Server is shutting down\n");
                 running = 0;
             }
         }
         free(command);
     }
+
     g_async_queue_unref(request_queue);
+
     if(save_fd){
         close(save_fd);
     }
+
     free(path);
     unlink(PIPE_NAME);
     return 0;
